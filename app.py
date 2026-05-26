@@ -163,10 +163,10 @@ INDEX_HTML = r"""<!doctype html>
         <p>Open Alice and Bob in separate browser tabs. Each endpoint hides the player's private answers from the other until reveal.</p>
       </div>
 
-      <div id="chatPanel" class="panel hidden">
-        <h3>Phase 1: Private Charlie Questions</h3>
-        <div class="small">Ask up to three questions. Charlie answers each with 100 tokens.</div>
+      <div id="transcriptPanel" class="panel hidden">
         <div id="askControls">
+          <h3>Phase 1: Private Charlie Questions</h3>
+          <div class="small">Ask up to three questions. Charlie answers each with 100 tokens.</div>
           <label for="charlieQuestion">Question for Charlie</label>
           <textarea id="charlieQuestion"></textarea>
           <button id="askBtn">Ask Charlie</button>
@@ -217,6 +217,7 @@ INDEX_HTML = r"""<!doctype html>
 const $ = (id) => document.getElementById(id);
 const role = location.pathname.includes("bob") ? "bob" : (location.pathname.includes("alice") ? "alice" : "");
 const opponent = role === "alice" ? "bob" : "alice";
+const draftPrefix = `steering-game:${role || "root"}`;
 
 async function api(path, body) {
   const res = await fetch(path, {
@@ -241,33 +242,78 @@ function setStatus(text, isError=false) {
   $("status").className = isError ? "status error" : "status";
 }
 
+function readDraft(name) {
+  try {
+    return JSON.parse(localStorage.getItem(`${draftPrefix}:${name}`) || "null") || {};
+  } catch {
+    return {};
+  }
+}
+
+function writeDraft(name, value) {
+  localStorage.setItem(`${draftPrefix}:${name}`, JSON.stringify(value));
+}
+
+function clearDraft(name) {
+  localStorage.removeItem(`${draftPrefix}:${name}`);
+}
+
+function htmlEscape(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
 function renderProposalInputs(state) {
   const root = $("proposalInputs");
+  const draft = readDraft("proposals");
   root.innerHTML = "";
   for (let i = 0; i < 3; i++) {
     const existing = state.me.proposals[i] || {};
+    const question = existing.question || draft[`q${i}`] || "";
+    const answer = existing.answer || draft[`a${i}`] || "";
     root.insertAdjacentHTML("beforeend", `
       <label>Question ${i + 1}</label>
-      <textarea id="proposalQ${i}">${existing.question || ""}</textarea>
+      <textarea id="proposalQ${i}">${htmlEscape(question)}</textarea>
       <label>Hidden answer ${i + 1}</label>
-      <input id="proposalA${i}" value="${existing.answer || ""}">
+      <input id="proposalA${i}" value="${htmlEscape(answer)}">
     `);
   }
+  root.querySelectorAll("textarea, input").forEach((input) => {
+    input.addEventListener("input", () => {
+      const next = {};
+      for (let i = 0; i < 3; i++) {
+        next[`q${i}`] = $(`proposalQ${i}`)?.value || "";
+        next[`a${i}`] = $(`proposalA${i}`)?.value || "";
+      }
+      writeDraft("proposals", next);
+    });
+  });
 }
 
 function renderAnswerInputs(state) {
   const root = $("answerInputs");
+  const draft = readDraft("answers");
   root.innerHTML = "";
   for (let i = 0; i < 3; i++) {
     const q = state.opponent_questions[i]?.question || "";
-    const answer = state.me.answers[i] || "";
+    const answer = state.me.answers[i] || draft[`a${i}`] || "";
     root.insertAdjacentHTML("beforeend", `
       <label>${opponent} question ${i + 1}</label>
-      <textarea disabled>${q}</textarea>
+      <textarea disabled>${htmlEscape(q)}</textarea>
       <label>Your answer ${i + 1}</label>
-      <input id="blindA${i}" value="${answer}">
+      <input id="blindA${i}" value="${htmlEscape(answer)}">
     `);
   }
+  root.querySelectorAll("input").forEach((input) => {
+    input.addEventListener("input", () => {
+      const next = {};
+      for (let i = 0; i < 3; i++) next[`a${i}`] = $(`blindA${i}`)?.value || "";
+      writeDraft("answers", next);
+    });
+  });
 }
 
 function renderScores(state) {
@@ -324,7 +370,7 @@ async function refresh() {
   const canPropose = !!role && state.phase === "proposals" && state.me.proposals.length < 3;
   const canAnswer = !!role && state.phase === "blind_answers" && state.me.answers.length < 3;
 
-  show("chatPanel", !!role && (canChat || state.me.charlie.length > 0));
+  show("transcriptPanel", !!role);
   show("askControls", canChat);
   show("proposalPanel", canPropose);
   show("answerPanel", canAnswer);
@@ -384,6 +430,7 @@ $("submitProposalsBtn").addEventListener("click", async () => {
   }
   try {
     await api("/api/propose", {role, proposals});
+    clearDraft("proposals");
     setStatus("Questions submitted.");
     await refresh();
   } catch (err) {
@@ -396,6 +443,7 @@ $("submitAnswersBtn").addEventListener("click", async () => {
   for (let i = 0; i < 3; i++) answers.push($(`blindA${i}`).value);
   try {
     await api("/api/answer", {role, answers});
+    clearDraft("answers");
     setStatus("Answers submitted.");
     await refresh();
   } catch (err) {
@@ -406,6 +454,8 @@ $("submitAnswersBtn").addEventListener("click", async () => {
 $("resetBtn").addEventListener("click", async () => {
   if (!confirm("Reset this in-memory game?")) return;
   await api("/api/reset", {});
+  clearDraft("proposals");
+  clearDraft("answers");
   await refresh();
 });
 
