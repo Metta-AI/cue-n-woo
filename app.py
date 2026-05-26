@@ -178,14 +178,40 @@ INDEX_HTML = r"""<!doctype html>
       <div id="proposalPanel" class="panel hidden">
         <h3>Phase 2: Propose Three Questions</h3>
         <div class="small">Enter questions you know the answer to and expect the other player not to know. Your answers stay hidden until reveal.</div>
-        <div id="proposalInputs"></div>
+        <div id="proposalInputs">
+          <label for="proposalQ0">Question 1</label>
+          <textarea id="proposalQ0" data-draft="proposal"></textarea>
+          <label for="proposalA0">Hidden answer 1</label>
+          <input id="proposalA0" data-draft="proposal">
+          <label for="proposalQ1">Question 2</label>
+          <textarea id="proposalQ1" data-draft="proposal"></textarea>
+          <label for="proposalA1">Hidden answer 2</label>
+          <input id="proposalA1" data-draft="proposal">
+          <label for="proposalQ2">Question 3</label>
+          <textarea id="proposalQ2" data-draft="proposal"></textarea>
+          <label for="proposalA2">Hidden answer 3</label>
+          <input id="proposalA2" data-draft="proposal">
+        </div>
         <button id="submitProposalsBtn">Submit Questions + Hidden Answers</button>
       </div>
 
       <div id="answerPanel" class="panel hidden">
         <h3>Phase 3: Answer Opponent Questions</h3>
         <div class="small">You can see the opponent's questions, but not their hidden answers.</div>
-        <div id="answerInputs"></div>
+        <div id="answerInputs">
+          <label id="answerQ0Label" for="answerQ0">Opponent question 1</label>
+          <textarea id="answerQ0" disabled></textarea>
+          <label for="blindA0">Your answer 1</label>
+          <input id="blindA0" data-draft="answer">
+          <label id="answerQ1Label" for="answerQ1">Opponent question 2</label>
+          <textarea id="answerQ1" disabled></textarea>
+          <label for="blindA1">Your answer 2</label>
+          <input id="blindA1" data-draft="answer">
+          <label id="answerQ2Label" for="answerQ2">Opponent question 3</label>
+          <textarea id="answerQ2" disabled></textarea>
+          <label for="blindA2">Your answer 3</label>
+          <input id="blindA2" data-draft="answer">
+        </div>
         <button id="submitAnswersBtn">Submit Blind Answers</button>
       </div>
 
@@ -258,14 +284,6 @@ function clearDraft(name) {
   localStorage.removeItem(`${draftPrefix}:${name}`);
 }
 
-function htmlEscape(value) {
-  return String(value || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
 function saveProposalDraft() {
   const next = {};
   for (let i = 0; i < 3; i++) {
@@ -281,47 +299,32 @@ function saveAnswerDraft() {
   writeDraft("answers", next);
 }
 
+function setValueUnlessDirty(id, value) {
+  const input = $(id);
+  if (!input) return;
+  const next = value || "";
+  if (input.dataset.dirty === "true" && document.activeElement === input) return;
+  if (input.dataset.dirty === "true" && input.value !== "") return;
+  input.value = next;
+}
+
 function renderProposalInputs(state) {
-  const root = $("proposalInputs");
-  if (root.dataset.rendered === "true" && state.me.proposals.length === 0) return;
   const draft = readDraft("proposals");
-  root.innerHTML = "";
   for (let i = 0; i < 3; i++) {
     const existing = state.me.proposals[i] || {};
-    const question = existing.question || draft[`q${i}`] || "";
-    const answer = existing.answer || draft[`a${i}`] || "";
-    root.insertAdjacentHTML("beforeend", `
-      <label>Question ${i + 1}</label>
-      <textarea id="proposalQ${i}">${htmlEscape(question)}</textarea>
-      <label>Hidden answer ${i + 1}</label>
-      <input id="proposalA${i}" value="${htmlEscape(answer)}">
-    `);
+    setValueUnlessDirty(`proposalQ${i}`, existing.question || draft[`q${i}`] || "");
+    setValueUnlessDirty(`proposalA${i}`, existing.answer || draft[`a${i}`] || "");
   }
-  root.querySelectorAll("textarea, input").forEach((input) => {
-    input.addEventListener("input", saveProposalDraft);
-  });
-  root.dataset.rendered = "true";
 }
 
 function renderAnswerInputs(state) {
-  const root = $("answerInputs");
-  if (root.dataset.rendered === "true" && state.me.answers.length === 0) return;
   const draft = readDraft("answers");
-  root.innerHTML = "";
   for (let i = 0; i < 3; i++) {
     const q = state.opponent_questions[i]?.question || "";
-    const answer = state.me.answers[i] || draft[`a${i}`] || "";
-    root.insertAdjacentHTML("beforeend", `
-      <label>${opponent} question ${i + 1}</label>
-      <textarea disabled>${htmlEscape(q)}</textarea>
-      <label>Your answer ${i + 1}</label>
-      <input id="blindA${i}" value="${htmlEscape(answer)}">
-    `);
+    $(`answerQ${i}Label`).textContent = `${opponent} question ${i + 1}`;
+    $(`answerQ${i}`).value = q;
+    setValueUnlessDirty(`blindA${i}`, state.me.answers[i] || draft[`a${i}`] || "");
   }
-  root.querySelectorAll("input").forEach((input) => {
-    input.addEventListener("input", saveAnswerDraft);
-  });
-  root.dataset.rendered = "true";
 }
 
 function renderScores(state) {
@@ -441,6 +444,7 @@ $("submitProposalsBtn").addEventListener("click", async () => {
   try {
     await api("/api/propose", {role, proposals});
     clearDraft("proposals");
+    document.querySelectorAll("[data-draft='proposal']").forEach((input) => input.dataset.dirty = "false");
     setStatus("Questions submitted.");
     await refresh();
   } catch (err) {
@@ -455,6 +459,7 @@ $("submitAnswersBtn").addEventListener("click", async () => {
   try {
     await api("/api/answer", {role, answers});
     clearDraft("answers");
+    document.querySelectorAll("[data-draft='answer']").forEach((input) => input.dataset.dirty = "false");
     setStatus("Answers submitted.");
     await refresh();
   } catch (err) {
@@ -462,13 +467,29 @@ $("submitAnswersBtn").addEventListener("click", async () => {
   }
 });
 
+document.querySelectorAll("[data-draft='proposal']").forEach((input) => {
+  input.addEventListener("input", () => {
+    input.dataset.dirty = "true";
+    saveProposalDraft();
+  });
+});
+
+document.querySelectorAll("[data-draft='answer']").forEach((input) => {
+  input.addEventListener("input", () => {
+    input.dataset.dirty = "true";
+    saveAnswerDraft();
+  });
+});
+
 $("resetBtn").addEventListener("click", async () => {
   if (!confirm("Reset this in-memory game?")) return;
   await api("/api/reset", {});
   clearDraft("proposals");
   clearDraft("answers");
-  $("proposalInputs").dataset.rendered = "false";
-  $("answerInputs").dataset.rendered = "false";
+  document.querySelectorAll("[data-draft]").forEach((input) => {
+    input.value = "";
+    input.dataset.dirty = "false";
+  });
   await refresh();
 });
 
@@ -930,6 +951,8 @@ def make_handler(backend):
             data = html.encode("utf-8")
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store, max-age=0")
+            self.send_header("Pragma", "no-cache")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -938,6 +961,7 @@ def make_handler(backend):
             data = json.dumps(payload).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store, max-age=0")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)

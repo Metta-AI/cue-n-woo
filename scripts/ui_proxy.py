@@ -17,6 +17,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
             body = INDEX_HTML.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store, max-age=0")
+            self.send_header("Pragma", "no-cache")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -47,6 +49,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 for key, value in resp.headers.items():
                     if key.lower() not in {"connection", "transfer-encoding"}:
                         self.send_header(key, value)
+                self.send_header("Cache-Control", "no-store, max-age=0")
                 self.end_headers()
                 self.wfile.write(data)
         except urllib.error.HTTPError as err:
@@ -55,6 +58,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             for key, value in err.headers.items():
                 if key.lower() not in {"connection", "transfer-encoding"}:
                     self.send_header(key, value)
+            self.send_header("Cache-Control", "no-store, max-age=0")
             self.end_headers()
             self.wfile.write(data)
 
