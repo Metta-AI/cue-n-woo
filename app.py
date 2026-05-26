@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import random
+import re
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -165,9 +166,11 @@ INDEX_HTML = r"""<!doctype html>
       <div id="chatPanel" class="panel hidden">
         <h3>Phase 1: Private Charlie Questions</h3>
         <div class="small">Ask up to three questions. Charlie answers each with 100 tokens.</div>
-        <label for="charlieQuestion">Question for Charlie</label>
-        <textarea id="charlieQuestion"></textarea>
-        <button id="askBtn">Ask Charlie</button>
+        <div id="askControls">
+          <label for="charlieQuestion">Question for Charlie</label>
+          <textarea id="charlieQuestion"></textarea>
+          <button id="askBtn">Ask Charlie</button>
+        </div>
         <h2>Your Private Transcript</h2>
         <pre id="transcript"></pre>
       </div>
@@ -321,13 +324,16 @@ async function refresh() {
   const canPropose = !!role && state.phase === "proposals" && state.me.proposals.length < 3;
   const canAnswer = !!role && state.phase === "blind_answers" && state.me.answers.length < 3;
 
-  show("chatPanel", canChat);
+  show("chatPanel", !!role && (canChat || state.me.charlie.length > 0));
+  show("askControls", canChat);
   show("proposalPanel", canPropose);
   show("answerPanel", canAnswer);
   show("waitingPanel", !!role && state.phase !== "reveal" && !(canChat || canPropose || canAnswer));
   show("revealPanel", state.phase === "reveal");
 
-  $("transcript").textContent = state.me.charlie.map((turn, i) => `Q${i + 1}: ${turn.question}\nCharlie: ${turn.answer}`).join("\n\n");
+  $("transcript").textContent = state.me.charlie.length
+    ? state.me.charlie.map((turn, i) => `Q${i + 1}: ${turn.question}\nCharlie: ${turn.answer}`).join("\n\n")
+    : "No private questions asked yet.";
   renderProposalInputs(state);
   renderAnswerInputs(state);
   renderScores(state);
@@ -491,6 +497,22 @@ class FlasBackend:
             )
             return f"Loaded {self.args.model_id} with FLAS checkpoint {self.args.flow_ckpt}."
 
+    @staticmethod
+    def model_safe_text(text):
+        replacements = {
+            r"\balice\b": "entry one",
+            r"\bbob\b": "entry two",
+            r"\bcharlie\b": "entry three",
+            r"\bplayer\b": "entry",
+            r"\bplayers\b": "entries",
+            r"\bopponent\b": "alternate entry",
+            r"\bopponents\b": "alternate entries",
+        }
+        safe = str(text)
+        for pattern, replacement in replacements.items():
+            safe = re.sub(pattern, replacement, safe, flags=re.IGNORECASE)
+        return safe
+
     def ask_charlie(self, payload):
         role = self.validate_role(payload.get("role"))
         question = payload.get("question", "").strip()
@@ -501,10 +523,10 @@ class FlasBackend:
                 raise ValueError("This endpoint already used all 3 Charlie questions.")
         if self.gen is None:
             self.load()
+        safe_question = self.model_safe_text(question)
         prompt = (
-            f"You are Charlie in a private conversation with {role.title()}.\n"
-            "Answer the player's question directly and helpfully. Do not mention any other player's hidden answers.\n\n"
-            f"{role.title()} asks: {question}"
+            "Answer the question directly and helpfully.\n\n"
+            f"Question: {safe_question}"
         )
         answer = self.generate_text(
             prompt=prompt,
@@ -620,29 +642,52 @@ class FlasBackend:
             self.state.results = results
 
     def scoring_context(self, alice, bob):
-        def transcript(name, player):
+        def transcript(section, player):
             turns = []
             for idx, turn in enumerate(player["charlie"]):
-                turns.append(f"{name} private Q{idx + 1}: {turn['question']}\nCharlie: {turn['answer']}")
+                question = self.model_safe_text(turn["question"])
+                answer = self.model_safe_text(turn["answer"])
+                turns.append(f"Record {section}.{idx + 1} question: {question}\nRecord {section}.{idx + 1} answer: {answer}")
             return "\n\n".join(turns)
 
         public_questions = []
         for idx, proposal in enumerate(alice["proposals"]):
-            public_questions.append(f"Alice public question {idx + 1}: {proposal['question']}")
+            public_questions.append(f"Question group 1.{idx + 1}: {self.model_safe_text(proposal['question'])}")
         for idx, proposal in enumerate(bob["proposals"]):
-            public_questions.append(f"Bob public question {idx + 1}: {proposal['question']}")
+            public_questions.append(f"Question group 2.{idx + 1}: {self.model_safe_text(proposal['question'])}")
 
         return "\n\n".join([
-            "Charlie has had separate private conversations with Alice and Bob.",
-            transcript("Alice", alice),
-            transcript("Bob", bob),
-            "Alice and Bob then publicly revealed only these questions, not their hidden answers:",
+            "Reference material:",
+            transcript("1", alice),
+            transcript("2", bob),
+            "Question list:",
             "\n".join(public_questions),
         ])
 
     def answer_probability(self, context, question, secret_answer, opponent_answer, concept, flowtime, n_steps):
-        first = self.option_probability(context, question, secret_answer, opponent_answer, concept, flowtime, n_steps, reverse=False)
-        second = self.option_probability(context, question, secret_answer, opponent_answer, concept, flowtime, n_steps, reverse=True)
+        safe_question = self.model_safe_text(question)
+        safe_secret_answer = self.model_safe_text(secret_answer)
+        safe_opponent_answer = self.model_safe_text(opponent_answer)
+        first = self.option_probability(
+            context,
+            safe_question,
+            safe_secret_answer,
+            safe_opponent_answer,
+            concept,
+            flowtime,
+            n_steps,
+            reverse=False,
+        )
+        second = self.option_probability(
+            context,
+            safe_question,
+            safe_secret_answer,
+            safe_opponent_answer,
+            concept,
+            flowtime,
+            n_steps,
+            reverse=True,
+        )
         return (first + second) / 2
 
     def option_probability(self, context, question, secret_answer, opponent_answer, concept, flowtime, n_steps, reverse):
@@ -653,11 +698,11 @@ class FlasBackend:
         secret_seq, opponent_seq = diff
         prompt = (
             f"{context}\n\n"
-            "Charlie must choose the answer that best answers the question based on the available evidence.\n"
+            "Choose the answer that best answers the question based on the available evidence.\n"
             f"Question: {question}\n"
             f"Option 1: {option_1}\n"
             f"Option 2: {option_2}\n"
-            "Charlie writes the selected answer exactly.\n"
+            "Write the selected answer exactly.\n"
             "Answer:"
         )
         probs = self.sequence_next_probs(prompt, concept, flowtime, n_steps, [secret_seq, opponent_seq])

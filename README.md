@@ -57,5 +57,6 @@ ssh -N -L 7860:127.0.0.1:7860 <host>
 - Gemma 2 9B IT + FLAS uses about 18 GB of VRAM for interactive inference.
 - Charlie and scoring use fixed FLAS settings: `flowtime=2`, `steps=3`, `temperature=0.7`.
 - The hidden concept is sampled from a broad style pool, including technical documentation, therapist, scientific reviewer, noir detective, pirate, legal analysis, storybook, philosophy, marketing, field report, fantasy chronicle, cyberpunk, comedy, Zen minimalism, finance, Victorian letter, sports commentary, conspiracy speculation, cooking show, bureaucratic formality, and additional styles.
+- Alice/Bob/Charlie are UI/game labels only. Prompts sent to the steered model use neutral record/question wording and sanitize those role names from user-provided text.
 - The game state is in memory. Restarting the server resets the round.
 - Eve is not in this corrected role-separated flow yet; the current implementation is Alice/Bob/Charlie only.
