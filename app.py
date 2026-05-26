@@ -199,7 +199,7 @@ INDEX_HTML = r"""<!doctype html>
         <div id="conceptReveal" class="callout"></div>
         <div id="scoreCards" class="cards" style="margin:12px 0"></div>
         <table>
-          <thead><tr><th>Owner</th><th>Question</th><th>Secret</th><th>Opponent Guess</th><th>P(secret)</th></tr></thead>
+          <thead><tr><th>Owner</th><th>Question</th><th>Secret</th><th>Opponent Guess</th><th>Score Margin</th></tr></thead>
           <tbody id="scoreRows"></tbody>
         </table>
         <h2>Totals</h2>
@@ -266,8 +266,24 @@ function htmlEscape(value) {
     .replaceAll('"', "&quot;");
 }
 
+function saveProposalDraft() {
+  const next = {};
+  for (let i = 0; i < 3; i++) {
+    next[`q${i}`] = $(`proposalQ${i}`)?.value || "";
+    next[`a${i}`] = $(`proposalA${i}`)?.value || "";
+  }
+  writeDraft("proposals", next);
+}
+
+function saveAnswerDraft() {
+  const next = {};
+  for (let i = 0; i < 3; i++) next[`a${i}`] = $(`blindA${i}`)?.value || "";
+  writeDraft("answers", next);
+}
+
 function renderProposalInputs(state) {
   const root = $("proposalInputs");
+  if (root.dataset.rendered === "true" && state.me.proposals.length === 0) return;
   const draft = readDraft("proposals");
   root.innerHTML = "";
   for (let i = 0; i < 3; i++) {
@@ -282,19 +298,14 @@ function renderProposalInputs(state) {
     `);
   }
   root.querySelectorAll("textarea, input").forEach((input) => {
-    input.addEventListener("input", () => {
-      const next = {};
-      for (let i = 0; i < 3; i++) {
-        next[`q${i}`] = $(`proposalQ${i}`)?.value || "";
-        next[`a${i}`] = $(`proposalA${i}`)?.value || "";
-      }
-      writeDraft("proposals", next);
-    });
+    input.addEventListener("input", saveProposalDraft);
   });
+  root.dataset.rendered = "true";
 }
 
 function renderAnswerInputs(state) {
   const root = $("answerInputs");
+  if (root.dataset.rendered === "true" && state.me.answers.length === 0) return;
   const draft = readDraft("answers");
   root.innerHTML = "";
   for (let i = 0; i < 3; i++) {
@@ -308,19 +319,17 @@ function renderAnswerInputs(state) {
     `);
   }
   root.querySelectorAll("input").forEach((input) => {
-    input.addEventListener("input", () => {
-      const next = {};
-      for (let i = 0; i < 3; i++) next[`a${i}`] = $(`blindA${i}`)?.value || "";
-      writeDraft("answers", next);
-    });
+    input.addEventListener("input", saveAnswerDraft);
   });
+  root.dataset.rendered = "true";
 }
 
 function renderScores(state) {
   $("scoreRows").innerHTML = "";
   for (const row of state.results?.rows || []) {
     const tr = document.createElement("tr");
-    for (const value of [row.owner, row.question, row.secret_answer, row.opponent_answer, row.probability.toFixed(4)]) {
+    const margin = row.score_margin ?? ((row.probability ?? 0.5) * 2 - 1);
+    for (const value of [row.owner, row.question, row.secret_answer, row.opponent_answer, margin.toFixed(4)]) {
       const td = document.createElement("td");
       td.textContent = value;
       tr.appendChild(td);
@@ -328,11 +337,11 @@ function renderScores(state) {
     $("scoreRows").appendChild(tr);
   }
   const totals = state.results?.totals || {};
-  $("totals").textContent = `Alice difference: ${(totals.alice_difference || 0).toFixed(4)}\nBob difference: ${(totals.bob_difference || 0).toFixed(4)}`;
+  $("totals").textContent = `Alice margin: ${(totals.alice_margin || totals.alice_difference || 0).toFixed(4)}\nBob margin: ${(totals.bob_margin || totals.bob_difference || 0).toFixed(4)}\nAlice - Bob: ${(totals.alice_difference || 0).toFixed(4)}`;
   $("conceptReveal").textContent = state.revealed_concept ? `Charlie's hidden steering concept: ${state.revealed_concept}` : "";
   $("scoreCards").innerHTML = state.results ? `
-    <div class="metric">Alice raw<strong>${totals.alice_raw.toFixed(3)}</strong></div>
-    <div class="metric">Bob raw<strong>${totals.bob_raw.toFixed(3)}</strong></div>
+    <div class="metric">Alice margin<strong>${(totals.alice_margin || totals.alice_raw || 0).toFixed(3)}</strong></div>
+    <div class="metric">Bob margin<strong>${(totals.bob_margin || totals.bob_raw || 0).toFixed(3)}</strong></div>
     <div class="metric">Alice - Bob<strong>${totals.alice_difference.toFixed(3)}</strong></div>
   ` : "";
 }
@@ -424,6 +433,7 @@ $("askBtn").addEventListener("click", async () => {
 });
 
 $("submitProposalsBtn").addEventListener("click", async () => {
+  saveProposalDraft();
   const proposals = [];
   for (let i = 0; i < 3; i++) {
     proposals.push({question: $(`proposalQ${i}`).value, answer: $(`proposalA${i}`).value});
@@ -439,6 +449,7 @@ $("submitProposalsBtn").addEventListener("click", async () => {
 });
 
 $("submitAnswersBtn").addEventListener("click", async () => {
+  saveAnswerDraft();
   const answers = [];
   for (let i = 0; i < 3; i++) answers.push($(`blindA${i}`).value);
   try {
@@ -456,6 +467,8 @@ $("resetBtn").addEventListener("click", async () => {
   await api("/api/reset", {});
   clearDraft("proposals");
   clearDraft("answers");
+  $("proposalInputs").dataset.rendered = "false";
+  $("answerInputs").dataset.rendered = "false";
   await refresh();
 });
 
@@ -634,11 +647,11 @@ class FlasBackend:
 
         context = self.scoring_context(alice, bob)
         rows = []
-        alice_total = 0.0
-        bob_total = 0.0
+        alice_margin = 0.0
+        bob_margin = 0.0
         with self.model_lock:
             for idx, proposal in enumerate(alice["proposals"]):
-                probability = self.answer_probability(
+                score = self.answer_score(
                     context=context,
                     question=proposal["question"],
                     secret_answer=proposal["answer"],
@@ -647,16 +660,16 @@ class FlasBackend:
                     flowtime=STEERING_FLOWTIME,
                     n_steps=STEERING_STEPS,
                 )
-                alice_total += probability
+                alice_margin += score["score_margin"]
                 rows.append({
                     "owner": "Alice",
                     "question": proposal["question"],
                     "secret_answer": proposal["answer"],
                     "opponent_answer": bob["answers"][idx],
-                    "probability": probability,
+                    **score,
                 })
             for idx, proposal in enumerate(bob["proposals"]):
-                probability = self.answer_probability(
+                score = self.answer_score(
                     context=context,
                     question=proposal["question"],
                     secret_answer=proposal["answer"],
@@ -665,21 +678,21 @@ class FlasBackend:
                     flowtime=STEERING_FLOWTIME,
                     n_steps=STEERING_STEPS,
                 )
-                bob_total += probability
+                bob_margin += score["score_margin"]
                 rows.append({
                     "owner": "Bob",
                     "question": proposal["question"],
                     "secret_answer": proposal["answer"],
                     "opponent_answer": alice["answers"][idx],
-                    "probability": probability,
+                    **score,
                 })
         results = {
             "rows": rows,
             "totals": {
-                "alice_raw": alice_total,
-                "bob_raw": bob_total,
-                "alice_difference": alice_total - bob_total,
-                "bob_difference": bob_total - alice_total,
+                "alice_margin": alice_margin,
+                "bob_margin": bob_margin,
+                "alice_difference": alice_margin - bob_margin,
+                "bob_difference": bob_margin - alice_margin,
             },
             "hidden_concept": hidden_concept,
             "settings": {
@@ -714,11 +727,11 @@ class FlasBackend:
             "\n".join(public_questions),
         ])
 
-    def answer_probability(self, context, question, secret_answer, opponent_answer, concept, flowtime, n_steps):
+    def answer_score(self, context, question, secret_answer, opponent_answer, concept, flowtime, n_steps):
         safe_question = self.model_safe_text(question)
         safe_secret_answer = self.model_safe_text(secret_answer)
         safe_opponent_answer = self.model_safe_text(opponent_answer)
-        first = self.option_probability(
+        first = self.option_selection_probs(
             context,
             safe_question,
             safe_secret_answer,
@@ -728,7 +741,7 @@ class FlasBackend:
             n_steps,
             reverse=False,
         )
-        second = self.option_probability(
+        second = self.option_selection_probs(
             context,
             safe_question,
             safe_secret_answer,
@@ -738,13 +751,23 @@ class FlasBackend:
             n_steps,
             reverse=True,
         )
-        return (first + second) / 2
+        first_margin = first["secret_probability"] - first["opponent_probability"]
+        second_margin = second["secret_probability"] - second["opponent_probability"]
+        return {
+            "score_margin": (first_margin + second_margin) / 2,
+            "average_secret_probability": (first["secret_probability"] + second["secret_probability"]) / 2,
+            "orderings": [first, second],
+        }
 
-    def option_probability(self, context, question, secret_answer, opponent_answer, concept, flowtime, n_steps, reverse):
+    def option_selection_probs(self, context, question, secret_answer, opponent_answer, concept, flowtime, n_steps, reverse):
         option_1, option_2 = (opponent_answer, secret_answer) if reverse else (secret_answer, opponent_answer)
         diff = self.first_differing_token_sequences(secret_answer, opponent_answer)
         if diff is None:
-            return 0.5
+            return {
+                "order": "opponent_first" if reverse else "secret_first",
+                "secret_probability": 0.5,
+                "opponent_probability": 0.5,
+            }
         secret_seq, opponent_seq = diff
         prompt = (
             f"{context}\n\n"
@@ -760,8 +783,16 @@ class FlasBackend:
         opponent_p = probs[opponent_seq]
         total = secret_p + opponent_p
         if total <= 0:
-            return 0.5
-        return secret_p / total
+            normalized_secret = 0.5
+            normalized_opponent = 0.5
+        else:
+            normalized_secret = secret_p / total
+            normalized_opponent = opponent_p / total
+        return {
+            "order": "opponent_first" if reverse else "secret_first",
+            "secret_probability": normalized_secret,
+            "opponent_probability": normalized_opponent,
+        }
 
     def first_differing_token_sequences(self, answer_a, answer_b):
         tokenizer = self.gen.tokenizer
