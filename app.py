@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import random
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -8,6 +9,75 @@ from urllib.parse import parse_qs, urlparse
 
 
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+
+STEERING_FLOWTIME = 2.0
+STEERING_STEPS = 3
+STEERING_TEMPERATURE = 0.7
+
+STEERING_CONCEPTS = [
+    "terse technical documentation, precise API wording, implementation details",
+    "warm supportive therapist, emotionally validating, gentle reflective language",
+    "skeptical scientific reviewer, caveats, methodology, uncertainty, evidence",
+    "noir detective narration, smoky atmosphere, clipped cynicism, urban mystery",
+    "exaggerated pirate speech, nautical slang, ahoy, matey, arr, treasure",
+    "formal legal analysis, statutory language, liability, precedent, careful qualifications",
+    "children's storybook narration, simple words, wonder, friendly tone",
+    "academic philosophy, abstract concepts, epistemology, ontology, careful argument",
+    "marketing copy, persuasive benefits, polished product language, call-to-action",
+    "military field report, concise observations, tactical status, objective tone",
+    "medieval fantasy chronicle, kingdoms, oaths, ancient prophecy, elevated diction",
+    "cyberpunk hacker slang, neon cities, networks, implants, corporate dystopia",
+    "stand-up comedy, punchlines, self-aware jokes, conversational timing",
+    "Zen minimalist prose, calm restraint, sparse language, contemplative imagery",
+    "financial analyst memo, market risk, valuation, forecasts, basis points",
+    "Victorian letter writing, ornate politeness, nineteenth-century diction",
+    "sports commentator excitement, play-by-play energy, momentum, dramatic calls",
+    "conspiracy theorist speculation, hidden motives, suspicious connections",
+    "cooking show host, sensory food language, ingredients, kitchen enthusiasm",
+    "robotic bureaucratic formality, procedural compliance, sterile administrative tone",
+    "gothic horror prose, dread, candlelight, decaying mansions, ominous suspense",
+    "direct executive briefing, concise recommendations, tradeoffs, risks, next steps",
+    "surreal dream logic, impossible imagery, shifting identities, poetic ambiguity",
+    "hardboiled newspaper reporting, inverted pyramid, quotes, factual restraint",
+    "Socratic tutor, probing questions, incremental reasoning, gentle correction",
+    "emergency room triage, urgent prioritization, symptoms, risk assessment",
+    "museum curator label, historical context, provenance, material culture",
+    "field naturalist journal, species observations, habitat, patient description",
+    "startup founder pitch, vision, traction, market opportunity, confident urgency",
+    "ancient mythic epic, gods, heroes, fate, ritual grandeur",
+    "minimalist haiku-like prose, seasonal imagery, silence, precise sensory detail",
+    "dry British wit, understatement, irony, restrained comic timing",
+    "optimistic futurist manifesto, technological progress, abundance, bold possibility",
+    "pessimistic risk analyst, failure modes, downside scenarios, cautious forecasting",
+    "friendly classroom teacher, clear examples, scaffolding, approachable explanations",
+    "dense mathematical exposition, definitions, lemmas, notation, proof structure",
+    "tabloid celebrity gossip, dramatic reveals, breathless speculation, scandal",
+    "travel guidebook, practical tips, landmarks, local customs, itinerary language",
+    "product manager spec, user stories, acceptance criteria, metrics, edge cases",
+    "religious sermon, moral exhortation, scripture-like cadence, redemption themes",
+    "diplomatic cable, geopolitical nuance, cautious phrasing, strategic interests",
+    "forensic investigator report, evidence chain, timestamps, physical traces",
+    "fitness coach motivation, reps, discipline, progress, energetic encouragement",
+    "luxury brand copy, elegance, exclusivity, craftsmanship, refined aspiration",
+    "old internet forum post, casual abbreviations, tangents, flamewar energy",
+    "poetic romantic lyricism, longing, moonlight, intimate emotion, lush metaphor",
+    "safety compliance manual, hazards, required procedures, warnings, checklists",
+    "game designer commentary, mechanics, player incentives, balance, emergent play",
+    "rural folk tale, plainspoken wisdom, animals, weather, generational memory",
+    "cosmic science documentary, galaxies, deep time, awe, explanatory grandeur",
+    "snarky tech reviewer, benchmarks, complaints, clever asides, practical verdicts",
+    "meditation instructor, breath awareness, body scanning, compassionate presence",
+    "courtroom cross-examination, leading questions, contradictions, evidentiary pressure",
+    "archaeological expedition log, strata, artifacts, ruins, careful discovery",
+    "radio host banter, conversational transitions, audience address, upbeat pacing",
+    "policy think tank memo, stakeholders, incentives, implementation constraints",
+    "classic adventure serial, cliffhangers, peril, bold explorers, exotic locales",
+    "melancholic memoir, reflective memory, regret, intimate personal detail",
+    "precision engineering note, tolerances, materials, failure analysis, specifications",
+    "urban planning report, transit, zoning, density, public space, tradeoffs",
+    "bardic tavern song, rhyming praise, revelry, legends, rhythmic flourish",
+]
 
 
 INDEX_HTML = r"""<!doctype html>
@@ -48,6 +118,10 @@ INDEX_HTML = r"""<!doctype html>
     .error { color: var(--error); }
     .small { color: var(--muted); font-size: 12px; line-height: 1.45; }
     .pill { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; margin-right: 6px; font-size: 12px; color: var(--muted); background: #fff; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    .metric { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 10px; }
+    .metric strong { display: block; font-size: 20px; margin-top: 4px; }
+    .callout { border-left: 4px solid var(--accent); background: #eef8f6; padding: 10px; border-radius: 6px; }
     .hidden { display: none; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { border-bottom: 1px solid var(--line); padding: 8px; text-align: left; vertical-align: top; }
@@ -68,13 +142,7 @@ INDEX_HTML = r"""<!doctype html>
     <div id="loadStatus" class="status">Loads automatically when Charlie is asked or scoring starts.</div>
 
     <h2>Charlie Steering</h2>
-    <label for="concept">Concept</label>
-    <textarea id="concept">Careful private tutoring, preserve hidden knowledge, answer helpfully without revealing other players' secrets</textarea>
-    <div class="row">
-      <div><label for="flowtime">Flowtime</label><input id="flowtime" type="number" step="0.1" value="1.5"></div>
-      <div><label for="steps">Steps</label><input id="steps" type="number" min="1" max="8" value="3"></div>
-    </div>
-    <div class="small">Each player gets 3 private Charlie questions, each answered with up to 100 tokens.</div>
+    <div class="small">Charlie has a hidden randomly selected style/concept. It is revealed only at the end. Settings: flowtime 2, steps 3, temperature .7.</div>
 
     <h2>Admin</h2>
     <button id="resetBtn" class="danger">Reset Game</button>
@@ -85,6 +153,7 @@ INDEX_HTML = r"""<!doctype html>
       <div class="panel">
         <h3>Status</h3>
         <div id="phase"></div>
+        <div id="progressCards" class="cards" style="margin-top:10px"></div>
         <div id="status" class="status"></div>
       </div>
 
@@ -124,6 +193,8 @@ INDEX_HTML = r"""<!doctype html>
 
       <div id="revealPanel" class="panel hidden">
         <h3>Reveal + Score</h3>
+        <div id="conceptReveal" class="callout"></div>
+        <div id="scoreCards" class="cards" style="margin:12px 0"></div>
         <table>
           <thead><tr><th>Owner</th><th>Question</th><th>Secret</th><th>Opponent Guess</th><th>P(secret)</th></tr></thead>
           <tbody id="scoreRows"></tbody>
@@ -133,8 +204,8 @@ INDEX_HTML = r"""<!doctype html>
       </div>
 
       <div class="panel">
-        <h3>Public State</h3>
-        <pre id="raw"></pre>
+        <h3>Round Overview</h3>
+        <div id="overview"></div>
       </div>
     </div>
   </section>
@@ -160,14 +231,6 @@ async function getState() {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
-}
-
-function steering() {
-  return {
-    concept: $("concept").value,
-    flowtime: Number($("flowtime").value),
-    n_steps: Number($("steps").value)
-  };
 }
 
 function setStatus(text, isError=false) {
@@ -215,7 +278,32 @@ function renderScores(state) {
     }
     $("scoreRows").appendChild(tr);
   }
-  $("totals").textContent = JSON.stringify(state.results?.totals || {}, null, 2);
+  const totals = state.results?.totals || {};
+  $("totals").textContent = `Alice difference: ${(totals.alice_difference || 0).toFixed(4)}\nBob difference: ${(totals.bob_difference || 0).toFixed(4)}`;
+  $("conceptReveal").textContent = state.revealed_concept ? `Charlie's hidden steering concept: ${state.revealed_concept}` : "";
+  $("scoreCards").innerHTML = state.results ? `
+    <div class="metric">Alice raw<strong>${totals.alice_raw.toFixed(3)}</strong></div>
+    <div class="metric">Bob raw<strong>${totals.bob_raw.toFixed(3)}</strong></div>
+    <div class="metric">Alice - Bob<strong>${totals.alice_difference.toFixed(3)}</strong></div>
+  ` : "";
+}
+
+function renderOverview(state) {
+  const publicAlice = state.public_questions.alice.map((q, i) => `<li>A${i + 1}: ${q.question}</li>`).join("");
+  const publicBob = state.public_questions.bob.map((q, i) => `<li>B${i + 1}: ${q.question}</li>`).join("");
+  $("progressCards").innerHTML = `
+    <div class="metric">Alice Charlie questions<strong>${state.counts.alice_chats}/3</strong></div>
+    <div class="metric">Bob Charlie questions<strong>${state.counts.bob_chats}/3</strong></div>
+    <div class="metric">Alice challenges<strong>${state.counts.alice_proposals}/3</strong></div>
+    <div class="metric">Bob challenges<strong>${state.counts.bob_proposals}/3</strong></div>
+    <div class="metric">Alice blind answers<strong>${state.counts.alice_answers}/3</strong></div>
+    <div class="metric">Bob blind answers<strong>${state.counts.bob_answers}/3</strong></div>
+  `;
+  $("overview").innerHTML = `
+    <div class="small">Charlie's steering concept is hidden until reveal.</div>
+    <h2>Public Alice Questions</h2><ol>${publicAlice || "<li>Not submitted yet.</li>"}</ol>
+    <h2>Public Bob Questions</h2><ol>${publicBob || "<li>Not submitted yet.</li>"}</ol>
+  `;
 }
 
 function show(id, visible) {
@@ -226,7 +314,7 @@ async function refresh() {
   const state = await getState();
   $("title").textContent = role ? `${role[0].toUpperCase() + role.slice(1)} Endpoint` : "Theory of Mind Game";
   $("phase").innerHTML = `<span class="pill">phase: ${state.phase}</span><span class="pill">Alice chats: ${state.counts.alice_chats}/3</span><span class="pill">Bob chats: ${state.counts.bob_chats}/3</span>`;
-  $("raw").textContent = JSON.stringify(state, null, 2);
+  renderOverview(state);
 
   show("rootPanel", !role);
   const canChat = !!role && state.phase === "private_questions" && state.me.charlie.length < 3;
@@ -272,7 +360,7 @@ $("askBtn").addEventListener("click", async () => {
   $("askBtn").disabled = true;
   setStatus("Asking Charlie...");
   try {
-    await api("/api/ask", {role, question: $("charlieQuestion").value, ...steering()});
+    await api("/api/ask", {role, question: $("charlieQuestion").value});
     $("charlieQuestion").value = "";
     setStatus("Charlie answered.");
     await refresh();
@@ -301,7 +389,7 @@ $("submitAnswersBtn").addEventListener("click", async () => {
   const answers = [];
   for (let i = 0; i < 3; i++) answers.push($(`blindA${i}`).value);
   try {
-    await api("/api/answer", {role, answers, ...steering()});
+    await api("/api/answer", {role, answers});
     setStatus("Answers submitted.");
     await refresh();
   } catch (err) {
@@ -335,6 +423,7 @@ class GameState:
     def reset(self):
         self.players = {"alice": empty_player(), "bob": empty_player()}
         self.results = None
+        self.hidden_concept = random.choice(STEERING_CONCEPTS)
 
     def phase(self):
         if self.results is not None:
@@ -366,7 +455,18 @@ class GameState:
                 {"question": proposal["question"]}
                 for proposal in self.players[other]["proposals"]
             ],
+            "public_questions": {
+                "alice": [
+                    {"question": proposal["question"]}
+                    for proposal in self.players["alice"]["proposals"]
+                ],
+                "bob": [
+                    {"question": proposal["question"]}
+                    for proposal in self.players["bob"]["proposals"]
+                ],
+            },
             "results": self.results,
+            "revealed_concept": self.hidden_concept if self.phase() == "reveal" else None,
         }
 
 
@@ -408,11 +508,11 @@ class FlasBackend:
         )
         answer = self.generate_text(
             prompt=prompt,
-            concept=payload.get("concept", ""),
-            flowtime=float(payload.get("flowtime", 1.5)),
-            n_steps=int(payload.get("n_steps", self.args.n_steps)),
+            concept=self.state.hidden_concept,
+            flowtime=STEERING_FLOWTIME,
+            n_steps=STEERING_STEPS,
             max_tokens=100,
-            temperature=0.7,
+            temperature=STEERING_TEMPERATURE,
         )
         with self.state.lock:
             self.state.players[role]["charlie"].append({"question": question, "answer": answer})
@@ -448,20 +548,17 @@ class FlasBackend:
             self.state.players[role]["answers"] = answers
             should_score = all(len(player["answers"]) == 3 for player in self.state.players.values())
         if should_score:
-            self.score_round(
-                concept=payload.get("concept", ""),
-                flowtime=float(payload.get("flowtime", 1.5)),
-                n_steps=int(payload.get("n_steps", self.args.n_steps)),
-            )
+            self.score_round()
         with self.state.lock:
             return self.state.view(role)
 
-    def score_round(self, concept, flowtime, n_steps):
+    def score_round(self):
         if self.gen is None:
             self.load()
         with self.state.lock:
             alice = json.loads(json.dumps(self.state.players["alice"]))
             bob = json.loads(json.dumps(self.state.players["bob"]))
+            hidden_concept = self.state.hidden_concept
 
         context = self.scoring_context(alice, bob)
         rows = []
@@ -474,9 +571,9 @@ class FlasBackend:
                     question=proposal["question"],
                     secret_answer=proposal["answer"],
                     opponent_answer=bob["answers"][idx],
-                    concept=concept,
-                    flowtime=flowtime,
-                    n_steps=n_steps,
+                    concept=hidden_concept,
+                    flowtime=STEERING_FLOWTIME,
+                    n_steps=STEERING_STEPS,
                 )
                 alice_total += probability
                 rows.append({
@@ -492,9 +589,9 @@ class FlasBackend:
                     question=proposal["question"],
                     secret_answer=proposal["answer"],
                     opponent_answer=alice["answers"][idx],
-                    concept=concept,
-                    flowtime=flowtime,
-                    n_steps=n_steps,
+                    concept=hidden_concept,
+                    flowtime=STEERING_FLOWTIME,
+                    n_steps=STEERING_STEPS,
                 )
                 bob_total += probability
                 rows.append({
@@ -511,6 +608,12 @@ class FlasBackend:
                 "bob_raw": bob_total,
                 "alice_difference": alice_total - bob_total,
                 "bob_difference": bob_total - alice_total,
+            },
+            "hidden_concept": hidden_concept,
+            "settings": {
+                "flowtime": STEERING_FLOWTIME,
+                "steps": STEERING_STEPS,
+                "temperature": STEERING_TEMPERATURE,
             },
         }
         with self.state.lock:
