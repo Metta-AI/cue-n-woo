@@ -229,17 +229,29 @@ async function refresh() {
   $("raw").textContent = JSON.stringify(state, null, 2);
 
   show("rootPanel", !role);
-  show("chatPanel", !!role && state.me.charlie.length < 3);
-  show("proposalPanel", !!role && state.me.charlie.length >= 3 && state.me.proposals.length < 3);
-  show("answerPanel", !!role && state.me.proposals.length >= 3 && state.opponent_questions.length >= 3 && state.me.answers.length < 3);
-  show("waitingPanel", !!role && state.phase !== "reveal" && !(!$("chatPanel").classList.contains("hidden") || !$("proposalPanel").classList.contains("hidden") || !$("answerPanel").classList.contains("hidden")));
+  const canChat = !!role && state.phase === "private_questions" && state.me.charlie.length < 3;
+  const canPropose = !!role && state.phase === "proposals" && state.me.proposals.length < 3;
+  const canAnswer = !!role && state.phase === "blind_answers" && state.me.answers.length < 3;
+
+  show("chatPanel", canChat);
+  show("proposalPanel", canPropose);
+  show("answerPanel", canAnswer);
+  show("waitingPanel", !!role && state.phase !== "reveal" && !(canChat || canPropose || canAnswer));
   show("revealPanel", state.phase === "reveal");
 
   $("transcript").textContent = state.me.charlie.map((turn, i) => `Q${i + 1}: ${turn.question}\nCharlie: ${turn.answer}`).join("\n\n");
   renderProposalInputs(state);
   renderAnswerInputs(state);
   renderScores(state);
-  $("waitingText").textContent = "Waiting for the other endpoint to finish the current phase.";
+  if (state.phase === "private_questions") {
+    $("waitingText").textContent = "You have asked all 3 private Charlie questions. Waiting for the other player to finish phase 1.";
+  } else if (state.phase === "proposals") {
+    $("waitingText").textContent = "You have submitted all 3 challenge questions and hidden answers. Waiting for the other player to finish phase 2.";
+  } else if (state.phase === "blind_answers") {
+    $("waitingText").textContent = "You have submitted your blind answers. Waiting for the other player to finish phase 3.";
+  } else {
+    $("waitingText").textContent = "Waiting.";
+  }
 }
 
 $("loadBtn").addEventListener("click", async () => {
@@ -419,8 +431,8 @@ class FlasBackend:
                 raise ValueError("Every proposed question and hidden answer must be non-empty.")
             cleaned.append({"question": question, "answer": answer})
         with self.state.lock:
-            if len(self.state.players[role]["charlie"]) < 3:
-                raise ValueError("Ask Charlie 3 private questions before proposing challenges.")
+            if self.state.phase() != "proposals":
+                raise ValueError("Both players must ask Charlie 3 private questions before phase 2 begins.")
             self.state.players[role]["proposals"] = cleaned
             return self.state.view(role)
 
@@ -431,8 +443,8 @@ class FlasBackend:
         if len(answers) != 3 or any(not answer for answer in answers):
             raise ValueError("Submit exactly 3 non-empty blind answers.")
         with self.state.lock:
-            if len(self.state.players[role]["proposals"]) < 3 or len(self.state.players[other]["proposals"]) < 3:
-                raise ValueError("Both players must submit proposed questions before blind answers.")
+            if self.state.phase() != "blind_answers":
+                raise ValueError("Both players must submit proposed questions before phase 3 begins.")
             self.state.players[role]["answers"] = answers
             should_score = all(len(player["answers"]) == 3 for player in self.state.players.values())
         if should_score:
