@@ -4,11 +4,14 @@ version = "0.1.0"
 description = "Local FLAS activation-steering web UI."
 requires-python = ">=3.11"
 dependencies = [
+    "boto3==1.42.6",
     "flas @ git+https://github.com/flas-ai/FLAS.git@main",
     "huggingface_hub==0.36.2",
+    "jsonschema==4.25.1",
     "numpy==1.26.4",
     "torch==2.12.0",
     "transformers==4.56.1",
+    "websockets==15.0.1",
 ]
 
 [build-system]

@@ -1,0 +1,290 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Metta-AI/coworld/main/src/coworld/coworld_manifest_schema.json",
+  "game": {
+    "name": "steering_game",
+    "version": "0.1.0",
+    "description": "Two-player theory-of-mind game backed by a local FLAS/Gemma worker.",
+    "owner": "metta-ai",
+    "runnable": {
+      "type": "game",
+      "image": "{{STEERING_GAME_IMAGE}}",
+      "run": ["python", "v2/coworld/game.py"]
+    },
+    "config_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tokens"],
+      "properties": {
+        "tokens": {
+          "description": "One connection token per player slot. Runner-injected.",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "players": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "default": [{"name": "Alice"}, {"name": "Bob"}],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {"name": {"type": "string", "minLength": 1}}
+          }
+        },
+        "llm_worker_url": {
+          "type": "string",
+          "default": "http://127.0.0.1:7870"
+        },
+        "round_timeout_seconds": {
+          "description": "Hard episode timer in seconds.",
+          "type": "number",
+          "minimum": 10,
+          "maximum": 3600,
+          "default": 300
+        },
+        "private_questions_per_player": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3
+        },
+        "challenge_questions_per_player": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3
+        },
+        "max_question_tokens": {
+          "description": "Simple whitespace-token limit for submitted questions/prompts. Questions may use normal prompt whitespace.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2048,
+          "default": 1024
+        },
+        "max_answer_tokens": {
+          "description": "Simple whitespace-token limit for hidden answers and blind answers. Answers may contain printable keyboard characters and single spaces only.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "default": 12
+        },
+        "max_prompt_tokens": {
+          "description": "Maximum tokenized prompt length sent to the LLM worker.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2048,
+          "default": 1024
+        },
+        "charlie_max_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256,
+          "default": 128
+        },
+        "max_output_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256,
+          "default": 128
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2,
+          "default": 0.7
+        },
+        "concept_type": {
+          "description": "list selects from data/concepts.json; specific uses specific_concept; random uses a seeded random FLAS vector.",
+          "type": "string",
+          "enum": ["list", "specific", "random"],
+          "default": "list"
+        },
+        "concept_index": {
+          "description": "Optional fixed index into data/concepts.json when concept_type is list.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "specific_concept": {
+          "description": "Exact text concept when concept_type is specific. This is server-private and is not sent to players.",
+          "type": "string"
+        },
+        "concept_seed": {
+          "description": "Seed for random concept vectors. This is server-private and is not sent to players.",
+          "type": "string"
+        },
+        "concept_list_path": {
+          "description": "Optional path to a JSON array of text concepts.",
+          "type": "string"
+        },
+        "random_concept_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "default": 16
+        },
+        "random_concept_scale": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 1
+        },
+        "random_concept_normalize": {
+          "type": "string",
+          "enum": ["unit_rms", "none"],
+          "default": "unit_rms"
+        },
+        "flas_flowtime": {
+          "description": "FLAS steering strength/flowtime.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 2
+        },
+        "flas_steps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "default": 3
+        },
+        "reveal_concept_to_clients": {
+          "description": "Whether final player/global state includes the hidden concept. Defaults false.",
+          "type": "boolean",
+          "default": false
+        },
+        "include_concept_in_results": {
+          "description": "Whether final results/replay artifacts include the hidden concept. Defaults false.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "results_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["scores", "status", "timeout"],
+      "properties": {
+        "scores": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"type": "number"}
+        },
+        "status": {"type": "string", "enum": ["complete", "timeout"]},
+        "timeout": {"type": "boolean"},
+        "duration_seconds": {"type": "number"}
+      }
+    },
+    "protocols": {
+      "player": {
+        "type": "uri",
+        "value": "https://github.com/metta-ai/steering-game/blob/main/v2/coworld/docs/player_protocol_spec.md"
+      },
+      "global": {
+        "type": "uri",
+        "value": "https://github.com/metta-ai/steering-game/blob/main/v2/coworld/docs/global_protocol_spec.md"
+      }
+    },
+    "docs": {
+      "pages": [
+        {
+          "id": "rules.md",
+          "title": "rules.md",
+          "content": {
+            "type": "text",
+            "value": "# Steering Game Rules\n\nTwo players independently ask a hidden-style Charlie up to three private questions. Each player then writes three challenge questions and hidden answers. Players answer the opponent's challenge questions without seeing the hidden answers. The server scores answer likelihoods using the local FLAS/Gemma worker. The hidden concept is server-private during play."
+          }
+        },
+        {
+          "id": "play_steering_game.md",
+          "title": "play_steering_game.md",
+          "content": {
+            "type": "text",
+            "value": "# Playing Steering Game\n\nConnect your player to the Coworld-provided `COWORLD_PLAYER_WS_URL`. Send `ask`, `propose`, and `answer` messages as described in the player protocol."
+          }
+        }
+      ]
+    }
+  },
+  "player": [
+    {
+      "id": "baseline-player",
+      "name": "Baseline Player",
+      "type": "player",
+      "image": "{{STEERING_GAME_IMAGE}}",
+      "run": ["python", "v2/coworld/player.py"],
+      "description": "Simple deterministic Coworld player for certification."
+    },
+    {
+      "id": "claude-policy",
+      "name": "Claude Policy",
+      "type": "player",
+      "image": "{{STEERING_GAME_IMAGE}}",
+      "run": ["python", "v2/coworld/claude_policy.py"],
+      "description": "General Bedrock Claude policy harness that uses submit_action tool calls and retries validation errors."
+    },
+    {
+      "id": "kyle-policy",
+      "name": "Kyle Policy",
+      "type": "player",
+      "image": "{{STEERING_GAME_IMAGE}}",
+      "run": ["python", "v2/coworld/kyle_policy.py"],
+      "description": "Heuristic policy that uses Kyle's phase-specific prompt ideas from the harness."
+    }
+  ],
+  "commissioner": [],
+  "reporter": [],
+  "grader": [],
+  "diagnoser": [],
+  "optimizer": [],
+  "variants": [
+    {
+      "id": "default",
+      "name": "Default",
+      "description": "Two-player default steering game with a five-minute hard timer.",
+      "game_config": {
+        "players": [{"name": "Alice"}, {"name": "Bob"}],
+        "llm_worker_url": "http://127.0.0.1:7870",
+        "round_timeout_seconds": 300,
+        "private_questions_per_player": 3,
+        "challenge_questions_per_player": 3,
+        "max_question_tokens": 1024,
+        "max_answer_tokens": 12,
+        "max_prompt_tokens": 1024,
+        "charlie_max_tokens": 128,
+        "temperature": 0.7,
+        "concept_type": "list",
+        "flas_flowtime": 2,
+        "flas_steps": 3,
+        "reveal_concept_to_clients": false
+      }
+    }
+  ],
+  "certification": {
+    "game_config": {
+      "players": [{"name": "Alice"}, {"name": "Bob"}],
+      "llm_worker_url": "http://127.0.0.1:7870",
+      "round_timeout_seconds": 300,
+      "private_questions_per_player": 3,
+      "challenge_questions_per_player": 3,
+      "max_question_tokens": 1024,
+      "max_answer_tokens": 12,
+      "max_prompt_tokens": 1024,
+      "charlie_max_tokens": 128,
+      "temperature": 0,
+      "concept_type": "list",
+      "concept_index": 0,
+      "flas_flowtime": 2,
+      "flas_steps": 3,
+      "reveal_concept_to_clients": false
+    },
+    "players": [
+      {"player_id": "baseline-player"},
+      {"player_id": "baseline-player"}
+    ]
+  }
+}

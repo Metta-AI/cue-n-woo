@@ -15,6 +15,9 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 STEERING_FLOWTIME = 2.0
 STEERING_STEPS = 3
 STEERING_TEMPERATURE = 0.7
+SCORE_SCALE = 100.0
+BEAT_BONUS_POINTS = 10.0
+DUPLICATE_ANSWER_PENALTY_POINTS = 10.0
 
 STEERING_CONCEPTS = [
     "terse technical documentation, precise API wording, implementation details",
@@ -225,7 +228,7 @@ INDEX_HTML = r"""<!doctype html>
         <div id="conceptReveal" class="callout"></div>
         <div id="scoreCards" class="cards" style="margin:12px 0"></div>
         <table>
-          <thead><tr><th>Owner</th><th>Question</th><th>Secret</th><th>Opponent Guess</th><th>Score Margin</th></tr></thead>
+          <thead><tr><th>Submitter</th><th>Question</th><th>Submitted Answer</th><th>Other Answer</th><th>Answer Scores</th></tr></thead>
           <tbody id="scoreRows"></tbody>
         </table>
         <h2>Totals</h2>
@@ -331,8 +334,10 @@ function renderScores(state) {
   $("scoreRows").innerHTML = "";
   for (const row of state.results?.rows || []) {
     const tr = document.createElement("tr");
-    const margin = row.score_margin ?? ((row.probability ?? 0.5) * 2 - 1);
-    for (const value of [row.owner, row.question, row.secret_answer, row.opponent_answer, margin.toFixed(4)]) {
+    const submittedScore = row.secret_score_points ?? row.score_points ?? 0;
+    const otherScore = row.opponent_score_points ?? 0;
+    const score = `${submittedScore.toFixed(3)} / ${otherScore.toFixed(3)}`;
+    for (const value of [row.submitter || row.owner, row.question, row.secret_answer, row.opponent_answer, score]) {
       const td = document.createElement("td");
       td.textContent = value;
       tr.appendChild(td);
@@ -340,11 +345,13 @@ function renderScores(state) {
     $("scoreRows").appendChild(tr);
   }
   const totals = state.results?.totals || {};
-  $("totals").textContent = `Alice margin: ${(totals.alice_margin || totals.alice_difference || 0).toFixed(4)}\nBob margin: ${(totals.bob_margin || totals.bob_difference || 0).toFixed(4)}\nAlice - Bob: ${(totals.alice_difference || 0).toFixed(4)}`;
+  const aliceScore = totals.alice_points ?? totals.alice_margin ?? totals.alice_difference ?? 0;
+  const bobScore = totals.bob_points ?? totals.bob_margin ?? totals.bob_difference ?? 0;
+  $("totals").textContent = `Alice score: ${aliceScore.toFixed(4)}\nBob score: ${bobScore.toFixed(4)}\nAlice - Bob: ${(totals.alice_difference || 0).toFixed(4)}`;
   $("conceptReveal").textContent = state.revealed_concept ? `Charlie's hidden steering concept: ${state.revealed_concept}` : "";
   $("scoreCards").innerHTML = state.results ? `
-    <div class="metric">Alice margin<strong>${(totals.alice_margin || totals.alice_raw || 0).toFixed(3)}</strong></div>
-    <div class="metric">Bob margin<strong>${(totals.bob_margin || totals.bob_raw || 0).toFixed(3)}</strong></div>
+    <div class="metric">Alice score<strong>${aliceScore.toFixed(3)}</strong></div>
+    <div class="metric">Bob score<strong>${bobScore.toFixed(3)}</strong></div>
     <div class="metric">Alice - Bob<strong>${totals.alice_difference.toFixed(3)}</strong></div>
   ` : "";
 }
@@ -668,8 +675,8 @@ class FlasBackend:
 
         context = self.scoring_context(alice, bob)
         rows = []
-        alice_margin = 0.0
-        bob_margin = 0.0
+        alice_points = 0.0
+        bob_points = 0.0
         with self.model_lock:
             for idx, proposal in enumerate(alice["proposals"]):
                 score = self.answer_score(
@@ -681,8 +688,10 @@ class FlasBackend:
                     flowtime=STEERING_FLOWTIME,
                     n_steps=STEERING_STEPS,
                 )
-                alice_margin += score["score_margin"]
+                alice_points += score["secret_score_points"]
+                bob_points += score["opponent_score_points"]
                 rows.append({
+                    "submitter": "Alice",
                     "owner": "Alice",
                     "question": proposal["question"],
                     "secret_answer": proposal["answer"],
@@ -699,8 +708,10 @@ class FlasBackend:
                     flowtime=STEERING_FLOWTIME,
                     n_steps=STEERING_STEPS,
                 )
-                bob_margin += score["score_margin"]
+                bob_points += score["secret_score_points"]
+                alice_points += score["opponent_score_points"]
                 rows.append({
+                    "submitter": "Bob",
                     "owner": "Bob",
                     "question": proposal["question"],
                     "secret_answer": proposal["answer"],
@@ -710,10 +721,12 @@ class FlasBackend:
         results = {
             "rows": rows,
             "totals": {
-                "alice_margin": alice_margin,
-                "bob_margin": bob_margin,
-                "alice_difference": alice_margin - bob_margin,
-                "bob_difference": bob_margin - alice_margin,
+                "alice_points": alice_points,
+                "bob_points": bob_points,
+                "alice_margin": alice_points,
+                "bob_margin": bob_points,
+                "alice_difference": alice_points - bob_points,
+                "bob_difference": bob_points - alice_points,
             },
             "hidden_concept": hidden_concept,
             "settings": {
@@ -749,6 +762,55 @@ class FlasBackend:
         ])
 
     def answer_score(self, context, question, secret_answer, opponent_answer, concept, flowtime, n_steps):
+        conflict = self.answer_conflict(secret_answer, opponent_answer)
+        if conflict is not None:
+            duplicate_answer_count = len([secret_answer, opponent_answer])
+            shared_probability = 1.0 / duplicate_answer_count
+            secret_base_points = SCORE_SCALE * shared_probability
+            opponent_base_points = SCORE_SCALE * shared_probability
+            secret_duplicate_penalty_points = -DUPLICATE_ANSWER_PENALTY_POINTS
+            opponent_duplicate_penalty_points = -DUPLICATE_ANSWER_PENALTY_POINTS
+            secret_score_points = secret_base_points + secret_duplicate_penalty_points
+            opponent_score_points = opponent_base_points + opponent_duplicate_penalty_points
+            return {
+                "score_points": secret_score_points,
+                "secret_score_points": secret_score_points,
+                "opponent_score_points": opponent_score_points,
+                "base_points": secret_base_points,
+                "secret_base_points": secret_base_points,
+                "opponent_base_points": opponent_base_points,
+                "bonus_points": 0.0,
+                "secret_bonus_points": 0.0,
+                "opponent_bonus_points": 0.0,
+                "duplicate_penalty_points": secret_duplicate_penalty_points,
+                "secret_duplicate_penalty_points": secret_duplicate_penalty_points,
+                "opponent_duplicate_penalty_points": opponent_duplicate_penalty_points,
+                "score_margin": 0.0,
+                "average_secret_probability": shared_probability,
+                "average_opponent_probability": shared_probability,
+                "duplicate_conflict": True,
+                "canonical_answer": conflict,
+                "orderings": [],
+            }
+        if not opponent_answer:
+            secret_base_points = SCORE_SCALE
+            secret_bonus_points = BEAT_BONUS_POINTS
+            return {
+                "score_points": secret_base_points + secret_bonus_points,
+                "secret_score_points": secret_base_points + secret_bonus_points,
+                "opponent_score_points": 0.0,
+                "base_points": secret_base_points,
+                "secret_base_points": secret_base_points,
+                "opponent_base_points": 0.0,
+                "bonus_points": secret_bonus_points,
+                "secret_bonus_points": secret_bonus_points,
+                "opponent_bonus_points": 0.0,
+                "score_margin": 1.0,
+                "average_secret_probability": 1.0,
+                "average_opponent_probability": 0.0,
+                "duplicate_conflict": False,
+                "orderings": [],
+            }
         safe_question = self.model_safe_text(question)
         safe_secret_answer = self.model_safe_text(secret_answer)
         safe_opponent_answer = self.model_safe_text(opponent_answer)
@@ -774,11 +836,40 @@ class FlasBackend:
         )
         first_margin = first["secret_probability"] - first["opponent_probability"]
         second_margin = second["secret_probability"] - second["opponent_probability"]
+        average_secret_probability = (first["secret_probability"] + second["secret_probability"]) / 2
+        average_opponent_probability = (first["opponent_probability"] + second["opponent_probability"]) / 2
+        secret_base_points = SCORE_SCALE * average_secret_probability
+        opponent_base_points = SCORE_SCALE * average_opponent_probability
+        secret_bonus_points = BEAT_BONUS_POINTS if average_secret_probability > average_opponent_probability else 0.0
+        opponent_bonus_points = BEAT_BONUS_POINTS if average_opponent_probability > average_secret_probability else 0.0
         return {
+            "score_points": secret_base_points + secret_bonus_points,
+            "secret_score_points": secret_base_points + secret_bonus_points,
+            "opponent_score_points": opponent_base_points + opponent_bonus_points,
+            "base_points": secret_base_points,
+            "secret_base_points": secret_base_points,
+            "opponent_base_points": opponent_base_points,
+            "bonus_points": secret_bonus_points,
+            "secret_bonus_points": secret_bonus_points,
+            "opponent_bonus_points": opponent_bonus_points,
             "score_margin": (first_margin + second_margin) / 2,
-            "average_secret_probability": (first["secret_probability"] + second["secret_probability"]) / 2,
+            "average_secret_probability": average_secret_probability,
+            "average_opponent_probability": average_opponent_probability,
+            "duplicate_conflict": False,
             "orderings": [first, second],
         }
+
+    def answer_conflict(self, first, second):
+        first_normalized = self.normalize_answer_for_conflict(first)
+        second_normalized = self.normalize_answer_for_conflict(second)
+        if not first_normalized or not second_normalized:
+            return None
+        if first_normalized.startswith(second_normalized) or second_normalized.startswith(first_normalized):
+            return first if len(first_normalized) <= len(second_normalized) else second
+        return None
+
+    def normalize_answer_for_conflict(self, answer):
+        return " ".join(str(answer).strip().casefold().split())
 
     def option_selection_probs(self, context, question, secret_answer, opponent_answer, concept, flowtime, n_steps, reverse):
         option_1, option_2 = (opponent_answer, secret_answer) if reverse else (secret_answer, opponent_answer)
