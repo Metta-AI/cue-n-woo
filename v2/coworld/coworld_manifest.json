@@ -1,13 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/Metta-AI/coworld/main/src/coworld/coworld_manifest_schema.json",
   "game": {
-    "name": "steering_game",
+    "name": "cue_n_woo",
     "version": "0.1.0",
     "description": "Two-player theory-of-mind game backed by a local FLAS/Gemma worker.",
     "owner": "metta-ai",
     "runnable": {
       "type": "game",
-      "image": "{{STEERING_GAME_IMAGE}}",
+      "image": "{{CUE_N_WOO_IMAGE}}",
       "run": ["python", "v2/coworld/game.py"],
       "env": {
         "WORKER_SIGNING_KEY_URI": "s3://observatory-private/cue-n-woo/tournament_signing_key"
@@ -204,15 +204,15 @@
           "title": "rules.md",
           "content": {
             "type": "text",
-            "value": "# Steering Game Rules\n\nTwo players independently ask a hidden-style Charlie up to three private questions. Each player then writes three challenge questions and hidden answers. Players answer the opponent's challenge questions without seeing the hidden answers. The server scores answer likelihoods using the local FLAS/Gemma worker. The hidden concept is server-private during play."
+            "value": "# Cue-n-Woo Rules\n\nTwo players independently ask a hidden-style Charlie up to three private questions. Each player then writes three challenge questions and hidden answers. Players answer the opponent's challenge questions without seeing the hidden answers. The server scores answer likelihoods using the local FLAS/Gemma worker. The hidden concept is server-private during play."
           }
         },
         {
-          "id": "play_steering_game.md",
-          "title": "play_steering_game.md",
+          "id": "play_cue_n_woo.md",
+          "title": "play_cue_n_woo.md",
           "content": {
             "type": "text",
-            "value": "# Playing Steering Game\n\nConnect your player to the Coworld-provided `COWORLD_PLAYER_WS_URL`. Send `ask`, `propose`, and `answer` messages as described in the player protocol."
+            "value": "# Playing Cue-n-Woo\n\nConnect your player to the Coworld-provided `COWORLD_PLAYER_WS_URL`. Send `ask`, `propose`, and `answer` messages as described in the player protocol."
           }
         }
       ]
@@ -223,7 +223,7 @@
       "id": "baseline-player",
       "name": "Baseline Player",
       "type": "player",
-      "image": "{{STEERING_GAME_IMAGE}}",
+      "image": "{{CUE_N_WOO_IMAGE}}",
       "run": ["python", "v2/coworld/player.py"],
       "description": "Simple deterministic Coworld player for certification."
     },
@@ -231,7 +231,7 @@
       "id": "claude-policy",
       "name": "Claude Policy",
       "type": "player",
-      "image": "{{STEERING_GAME_IMAGE}}",
+      "image": "{{CUE_N_WOO_IMAGE}}",
       "run": ["python", "v2/coworld/claude_policy.py"],
       "description": "General Bedrock Claude policy harness that uses submit_action tool calls and retries validation errors."
     },
@@ -239,7 +239,7 @@
       "id": "kyle-policy",
       "name": "Kyle Policy",
       "type": "player",
-      "image": "{{STEERING_GAME_IMAGE}}",
+      "image": "{{CUE_N_WOO_IMAGE}}",
       "run": ["python", "v2/coworld/kyle_policy.py"],
       "description": "Heuristic policy that uses Kyle's phase-specific prompt ideas from the harness."
     }
@@ -253,7 +253,7 @@
     {
       "id": "default",
       "name": "Default",
-      "description": "Two-player default steering game with a five-minute hard timer.",
+      "description": "Two-player default cue-n-woo game with a five-minute hard timer.",
       "game_config": {
         "players": [{"name": "Alice"}, {"name": "Bob"}],
         "llm_worker_url": "https://cue-n-woo-worker.softmax-research.net",

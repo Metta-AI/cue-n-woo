@@ -1,7 +1,7 @@
-# Steering Game Coworld
+# Cue-n-Woo Coworld
 
-This folder contains a Coworld-oriented version of the steering game. It is separate from the local browser server in
-`v2/game_server.py`.
+This folder contains a Coworld-oriented version of the cue-n-woo steering game. It is separate from the local browser
+server in `v2/game_server.py`.
 
 The Coworld game runnable:
 

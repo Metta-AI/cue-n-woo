@@ -1,6 +1,7 @@
-# steering-game
+# cue-n-woo
 
-Local web UI for a small theory-of-mind question game backed by FLAS activation steering with Gemma 2 9B IT.
+Local web UI for a small theory-of-mind question game (formerly "steering-game") backed by FLAS activation steering
+with Gemma 2 9B IT.
 
 The app loads:
 

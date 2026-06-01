@@ -357,7 +357,7 @@ class WorkerBackedBackend:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Run the v2 steering game server backed by an LLM worker.")
+    parser = argparse.ArgumentParser(description="Run the v2 cue-n-woo game server backed by an LLM worker.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--worker-url", default="http://127.0.0.1:7870")
@@ -368,7 +368,7 @@ def main():
     args = parse_args()
     backend = WorkerBackedBackend(args)
     server = ThreadingHTTPServer((args.host, args.port), make_handler(backend))
-    print(f"Serving v2 steering game at http://{args.host}:{args.port}", flush=True)
+    print(f"Serving v2 cue-n-woo game at http://{args.host}:{args.port}", flush=True)
     print(f"Using LLM worker at {args.worker_url}", flush=True)
     print("Use Ctrl-C to stop.", flush=True)
     server.serve_forever()

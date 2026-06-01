@@ -24,7 +24,7 @@ from v2.coworld.harness import public_hints, simple_token_count, validate_natura
 
 
 ROOT = Path(__file__).resolve().parent
-HTTP_USER_AGENT = "steering-game-coworld/0.1"
+HTTP_USER_AGENT = "cue-n-woo-coworld/0.1"
 GAME_HOST = os.environ.get("COGAME_HOST", "0.0.0.0")
 GAME_PORT = int(os.environ.get("COGAME_PORT", "8080"))
 SCORE_SCALE = 100.0
@@ -318,6 +318,11 @@ def global_client() -> HTMLResponse:
 
 @app.get("/client/replay")
 def replay_client() -> HTMLResponse:
+    return HTMLResponse((ROOT / "static" / "replay.html").read_text())
+
+
+@app.get("/client/replay/raw")
+def replay_client_raw() -> HTMLResponse:
     return HTMLResponse(GLOBAL_HTML)
 
 
@@ -491,6 +496,11 @@ async def finalize(timeout: bool) -> None:
             "players": state.players,
             "events": state.events,
             "results": public_results(results),
+            # A replay is a finished game, so it reveals the hidden concept (the
+            # steered "judge personality") regardless of the live reveal flag.
+            # This is what the spectator UI shows; the live /global view still
+            # honors reveal_concept_to_clients during play.
+            "hidden_concept": hidden_concept,
         }
     write_data(RESULTS_URI, json.dumps(results), content_type="application/json")
     write_data(REPLAY_URI, zlib.compress(json.dumps(replay).encode("utf-8")), content_type="application/octet-stream")
@@ -695,14 +705,14 @@ async def startup() -> None:
 
 PLAYER_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Steering Game Player</title>
+<title>Cue-n-Woo Player</title>
 <style>
 body{font-family:system-ui,sans-serif;margin:0;background:#f7f7f8;color:#17202a}main{max-width:900px;margin:auto;padding:20px}
 textarea,input,button{width:100%;box-sizing:border-box;margin:6px 0 12px;padding:9px;font:inherit}textarea{min-height:70px}
 button{background:#1f766b;color:white;border:0;border-radius:6px;font-weight:700}.panel{background:white;border:1px solid #ddd;border-radius:8px;padding:14px;margin:12px 0}
 .muted{color:#667085;font-size:13px}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}pre{white-space:pre-wrap}
 </style></head><body><main>
-<h1>Steering Game</h1><div class="panel"><strong id="phase"></strong><div id="timer" class="muted"></div><div id="status" class="muted"></div></div>
+<h1>Cue-n-Woo</h1><div class="panel"><strong id="phase"></strong><div id="timer" class="muted"></div><div id="status" class="muted"></div></div>
 <div class="panel"><h2>Ask Charlie</h2><textarea id="ask"></textarea><button onclick="sendAsk()">Ask</button></div>
 <div class="panel"><h2>Proposals</h2><div id="props"></div><button onclick="sendProps()">Submit Proposals</button></div>
 <div class="panel"><h2>Blind Answers</h2><div id="answers"></div><button onclick="sendAnswers()">Submit Answers</button></div>
@@ -731,8 +741,8 @@ function sendAnswers(){send({type:'answer',answers:[0,1,2].map(i=>$('aa'+i).valu
 
 GLOBAL_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Steering Game Viewer</title><style>body{font-family:system-ui,sans-serif;margin:20px}pre{white-space:pre-wrap}</style></head>
-<body><h1>Steering Game Viewer</h1><pre id="out"></pre><script>
+<title>Cue-n-Woo Viewer</title><style>body{font-family:system-ui,sans-serif;margin:20px}pre{white-space:pre-wrap}</style></head>
+<body><h1>Cue-n-Woo Viewer</h1><pre id="out"></pre><script>
 let ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/global`);
 ws.onmessage=e=>document.getElementById('out').textContent=JSON.stringify(JSON.parse(e.data),null,2);
 </script></body></html>"""

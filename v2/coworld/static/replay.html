@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logitlash — Cue-n-Woo Replay</title>
+<style>
+:root{
+  --bg:#0e1116;--panel:#171b22;--card:#1d222b;--line:#2a313c;--line2:#3a434f;
+  --ink:#e8ecf1;--muted:#9aa6b2;--dim:#6b7785;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  --a:#54b9ff;--a-bg:#13344d;--b:#ffb454;--b-bg:#4a3411;--good:#46d27f;--bad:#ff6b6b;--warn:#ffce54;
+}
+*{box-sizing:border-box}
+body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg);color:var(--ink)}
+.wrap{max-width:780px;margin:0 auto;padding:18px 16px 84px}
+.title{display:flex;align-items:center;gap:9px;font-size:20px;font-weight:600}
+.bolt{color:var(--warn)}
+.live{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--bad);margin-left:2px}
+.pip{width:7px;height:7px;border-radius:50%;display:inline-block}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+.blink{animation:pulse 1.2s ease-in-out infinite}
+.sub{font-size:12px;color:var(--muted)}
+.judge{display:flex;align-items:center;gap:11px;padding:11px 13px;background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-top:14px}
+.javatar{width:42px;height:42px;border-radius:50%;background:#2b2350;color:#cdb8ff;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0}
+.concept{font-size:14px;font-weight:600;color:#d9c6ff}
+.prompt{font-size:13px;color:var(--muted);text-align:center;padding:10px;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-top:12px}
+.prompt b{color:var(--ink);font-weight:600}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+@media(max-width:520px){.cards{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 14px;opacity:0;transform:translateY(8px);transition:opacity .4s,transform .4s,border-color .3s}
+.card.in{opacity:1;transform:none}
+.card.win{border-color:var(--good)}
+.chead{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+.who{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.dot{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600}
+.dotA{background:var(--a-bg);color:var(--a)}.dotB{background:var(--b-bg);color:var(--b)}
+.ans{font-size:14px;line-height:1.55;min-height:1.5em}
+.badge{font-size:11px;opacity:0;transition:opacity .3s;display:inline-flex;align-items:center;gap:4px}
+.badgeA{color:var(--a)}.badgeB{color:var(--b)}
+.tag{font-size:10px;color:var(--dim);margin-top:8px;text-transform:uppercase;letter-spacing:.04em}
+.meter{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin-top:12px}
+.mstatus{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:9px}
+.delta{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.pcts{display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:6px}
+.pa{color:var(--a)}.pb{color:var(--b)}
+.bar{height:15px;border-radius:8px;overflow:hidden;background:var(--line);display:flex}
+.barA{background:var(--a);transition:width .2s linear}.barB{flex:1;background:var(--b)}
+.names{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);margin-top:6px}
+.score{display:flex;justify-content:center;gap:18px;font-size:13px;margin-top:16px;color:var(--muted)}
+.score b{font-weight:600}.sa{color:var(--a)}.sb{color:var(--b)}
+.bar-controls{position:fixed;left:0;right:0;bottom:0;background:rgba(14,17,22,.94);border-top:1px solid var(--line);backdrop-filter:blur(6px)}
+.ctrls{max-width:780px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:12px}
+button{font:inherit;background:var(--card);color:var(--ink);border:1px solid var(--line2);border-radius:8px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--a)}
+button:disabled{opacity:.4;cursor:default}
+.prog{flex:1;height:5px;background:var(--line);border-radius:3px;overflow:hidden}
+.progfill{height:100%;width:0;background:var(--a);transition:width .3s}
+.spd{font-size:12px;color:var(--muted);min-width:28px;text-align:center}
+.final{text-align:center;padding:18px;margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.final h2{margin:0 0 6px;font-size:22px}
+.crown{color:var(--warn)}
+.err{color:var(--bad);padding:20px;text-align:center}
+.hint{font-size:11px;color:var(--dim);text-align:center;margin-top:10px;min-height:1.4em}
+a.raw{color:var(--dim);font-size:11px;text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div style="display:flex;align-items:center;justify-content:space-between">
+    <div class="title"><span class="bolt">&#9889;</span> Logitlash <span class="live"><span class="pip blink" style="background:var(--bad)"></span>replay</span></div>
+    <div class="sub" id="roundlbl"></div>
+  </div>
+  <div id="stage"></div>
+  <div class="hint" id="hint"></div>
+  <div style="text-align:center;margin-top:10px"><a class="raw" href="/client/replay/raw">view raw json</a></div>
+</div>
+<div class="bar-controls"><div class="ctrls">
+  <button id="btnPlay">&#9654; Play</button>
+  <button id="btnPrev">&#9664; Prev</button>
+  <button id="btnNext">Next &#9654;</button>
+  <div class="prog"><div class="progfill" id="progfill"></div></div>
+  <span class="spd" id="spdlbl">1&times;</span>
+  <button id="btnSpd">Speed</button>
+</div></div>
+<script>
+(function(){
+  var stage=document.getElementById('stage'), hint=document.getElementById('hint'), roundlbl=document.getElementById('roundlbl');
+  var btnPlay=document.getElementById('btnPlay'),btnPrev=document.getElementById('btnPrev'),btnNext=document.getElementById('btnNext'),btnSpd=document.getElementById('btnSpd');
+  var progfill=document.getElementById('progfill'),spdlbl=document.getElementById('spdlbl');
+  function esc(s){var d=document.createElement('div');d.textContent=(s==null?'':String(s));return d.innerHTML;}
+
+  function conceptText(c){
+    if(!c) return null;
+    if(c.type==='text' && c.text) return c.text;
+    if(c.type==='random') return 'a mystery vector (seed '+esc(c.seed)+')';
+    return null;
+  }
+
+  // Slot 0 = alice, slot 1 = bob. Each scored row is a duel between the question
+  // author's secret answer and the challenger's blind answer.
+  function buildShow(replay){
+    var cfg=replay.config_public||{}, players=(cfg.players||[{name:'Alice'},{name:'Bob'}]);
+    var nameA=(players[0]&&players[0].name)||'Alice', nameB=(players[1]&&players[1].name)||'Bob';
+    var results=replay.results||{}, rows=results.rows||[];
+    var concept=conceptText(replay.hidden_concept||results.hidden_concept);
+    var duels=rows.map(function(r){
+      var authorIsA = r.submitter==='alice';
+      return {
+        author: authorIsA?'A':'B',
+        question: r.question,
+        ansA: authorIsA ? r.secret_answer : r.opponent_answer,
+        ansB: authorIsA ? r.opponent_answer : r.secret_answer,
+        probA: authorIsA ? r.average_secret_probability : r.average_opponent_probability,
+        probB: authorIsA ? r.average_opponent_probability : r.average_secret_probability,
+        ptsA: authorIsA ? r.secret_score_points : r.opponent_score_points,
+        ptsB: authorIsA ? r.opponent_score_points : r.secret_score_points,
+        duplicate: !!r.duplicate_conflict
+      };
+    });
+    return {nameA:nameA,nameB:nameB,concept:concept,duels:duels,scores:results.scores||[0,0],status:results.status,timeout:results.timeout};
+  }
+
+  var show=null, idx=0, playing=false, speed=1, timer=null;
+  // steps: 0 = intro/judge, 1..N = duels, N+1 = final
+  function totalSteps(){ return show ? show.duels.length+2 : 0; }
+  function anim(ms){ return ms/speed; }
+
+  function render(){
+    if(!show) return;
+    roundlbl.textContent = (idx>=1 && idx<=show.duels.length) ? ('round '+idx+' of '+show.duels.length) : '';
+    progfill.style.width = (totalSteps()<=1?0:(idx/(totalSteps()-1))*100)+'%';
+    btnPrev.disabled = idx<=0; btnNext.disabled = idx>=totalSteps()-1;
+    if(idx===0) renderIntro();
+    else if(idx<=show.duels.length) renderDuel(show.duels[idx-1]);
+    else renderFinal();
+  }
+
+  function renderIntro(){
+    hint.textContent='Each round, two contestants answer — the judge picks the answer that best fits its secret style.';
+    stage.innerHTML =
+      '<div class="judge"><div class="javatar">JC</div><div>'+
+        '<div style="font-size:13px;font-weight:600">Judge Charlie <span style="color:var(--dim);font-weight:400">&middot; presiding</span></div>'+
+        '<div class="concept">secretly channeling: '+(show.concept?esc(show.concept):'&lt;hidden&gt;')+'</div>'+
+      '</div></div>'+
+      '<div class="prompt">A theory-of-mind duel: <b>'+esc(show.nameA)+'</b> vs <b>'+esc(show.nameB)+'</b> &mdash; '+show.duels.length+' rounds. Press <b>Play</b> or <b>Next</b>.</div>';
+  }
+
+  function renderDuel(d){
+    var authorName = d.author==='A'?show.nameA:show.nameB;
+    hint.textContent = 'The question’s author answered with their own secret guess; the opponent answered blind.';
+    stage.innerHTML =
+      '<div class="prompt">Round '+idx+' &middot; question by <b>'+esc(authorName)+'</b><br><b>'+esc(d.question)+'</b></div>'+
+      '<div class="cards">'+card('A',show.nameA,d.ansA)+card('B',show.nameB,d.ansB)+'</div>'+
+      meter()+scoreboard();
+    requestAnimationFrame(function(){
+      var cA=document.getElementById('cardA'); if(cA) cA.classList.add('in');
+      setTimeout(function(){
+        var cB=document.getElementById('cardB'); if(cB) cB.classList.add('in');
+        judge(d);
+      }, anim(420));
+    });
+  }
+  function card(side,name,ans){
+    var missing=!ans;
+    return '<div class="card" id="card'+side+'">'+
+      '<div class="chead"><div class="who"><div class="dot dot'+side+'">'+esc(name.charAt(0).toUpperCase())+'</div>'+esc(name)+'</div>'+
+      '<span class="badge badge'+side+'" id="badge'+side+'">&#127942; judge’s pick</span></div>'+
+      '<div class="ans">'+(missing?'<span style="color:var(--dim)">— no answer submitted —</span>':'&ldquo;'+esc(ans)+'&rdquo;')+'</div>'+
+      '<div class="tag" id="tag'+side+'"></div></div>';
+  }
+  function meter(){
+    return '<div class="meter">'+
+      '<div class="mstatus"><span id="mstat"><span class="pip blink" style="background:var(--muted);margin-right:5px"></span>judge is reading &mdash; sampling logits&hellip;</span><span class="delta" id="delta">&Delta;logit —</span></div>'+
+      '<div class="pcts"><span class="pa" id="pctA">50%</span><span class="pb" id="pctB">50%</span></div>'+
+      '<div class="bar"><div class="barA" id="barA" style="width:50%"></div><div class="barB" id="barB"></div></div>'+
+      '<div class="names"><span>'+esc(show.nameA)+'</span><span>'+esc(show.nameB)+'</span></div></div>';
+  }
+  function scoreboard(){
+    return '<div class="score"><span>scoreboard</span>'+
+      '<span class="sa">'+esc(show.nameA)+' <b id="sA">'+fmt(runningScore('A'))+'</b></span>'+
+      '<span class="sb">'+esc(show.nameB)+' <b id="sB">'+fmt(runningScore('B'))+'</b></span></div>';
+  }
+  function runningScore(side){
+    var s=0; for(var i=0;i<idx && i<show.duels.length;i++){ s += (side==='A'?show.duels[i].ptsA:show.duels[i].ptsB)||0; } return s;
+  }
+  function fmt(n){ return (Math.round((n||0)*10)/10).toString(); }
+
+  function setBar(p){
+    p=Math.max(2,Math.min(98,p));
+    var barA=document.getElementById('barA'); if(!barA) return;
+    barA.style.width=p.toFixed(1)+'%';
+    document.getElementById('pctA').textContent=Math.round(p)+'%';
+    document.getElementById('pctB').textContent=(100-Math.round(p))+'%';
+    var d=Math.log(p/(100-p)); document.getElementById('delta').textContent='Δlogit '+(d>=0?'+':'')+d.toFixed(2);
+  }
+
+  var judgeTimers=[];
+  function clearJudge(){ judgeTimers.forEach(function(t){clearInterval(t);clearTimeout(t);}); judgeTimers=[]; }
+  function judge(d){
+    clearJudge();
+    var tot=(d.probA||0)+(d.probB||0);
+    var targetA = tot>0 ? (d.probA/tot)*100 : 50;
+    var t=0, jit=setInterval(function(){ t++; setBar(50+Math.sin(t/2)*16+(Math.random()*8-4)); }, anim(140));
+    judgeTimers.push(jit);
+    judgeTimers.push(setTimeout(function(){
+      clearInterval(jit);
+      var barA=document.getElementById('barA'); var cur=barA?parseFloat(barA.style.width)||50:50;
+      var st=setInterval(function(){
+        cur+=(targetA-cur)*0.18;
+        if(Math.abs(targetA-cur)<0.4){ cur=targetA; clearInterval(st); reveal(d,targetA); }
+        setBar(cur);
+      }, anim(55));
+      judgeTimers.push(st);
+    }, anim(d.duplicate?900:2400)));
+  }
+  function reveal(d,targetA){
+    var mstat=document.getElementById('mstat'); if(!mstat) return;
+    if(d.duplicate){
+      mstat.innerHTML='<span style="color:var(--warn)">&#9888; both said nearly the same thing &mdash; the judge shrugs</span>';
+    } else if(Math.abs(targetA-50)<0.5){
+      mstat.innerHTML='<span style="color:var(--muted)">dead heat</span>';
+    } else {
+      var win=targetA>50?'A':'B', name=win==='A'?show.nameA:show.nameB;
+      mstat.innerHTML='<span style="color:var(--good)">&#10003; Judge Charlie leans '+esc(name)+'</span>';
+      var card=document.getElementById('card'+win), badge=document.getElementById('badge'+win);
+      if(card) card.classList.add('win'); if(badge) badge.style.opacity='1';
+    }
+    var tA=document.getElementById('tagA'), tB=document.getElementById('tagB');
+    if(tA) tA.textContent='+'+fmt(d.ptsA)+' pts'; if(tB) tB.textContent='+'+fmt(d.ptsB)+' pts';
+    var sA=document.getElementById('sA'), sB=document.getElementById('sB');
+    if(sA) sA.textContent=fmt(runningScore('A')+(d.ptsA||0));
+    if(sB) sB.textContent=fmt(runningScore('B')+(d.ptsB||0));
+    if(playing) scheduleNext(anim(1600));
+  }
+
+  function renderFinal(){
+    clearJudge(); hint.textContent='';
+    var a=show.scores[0]||0, b=show.scores[1]||0;
+    var winner = a===b?null:(a>b?show.nameA:show.nameB);
+    stage.innerHTML='<div class="final">'+
+      (winner?'<h2><span class="crown">&#128081;</span> '+esc(winner)+' wins</h2>':'<h2>It’s a tie</h2>')+
+      '<div class="sub">'+esc(show.nameA)+' '+fmt(a)+' &middot; '+esc(show.nameB)+' '+fmt(b)+'</div>'+
+      (show.timeout?'<div class="sub" style="color:var(--warn);margin-top:8px">&#9888; round ended on the clock</div>':'')+
+      (show.concept?'<div class="concept" style="margin-top:12px">the judge was channeling: '+esc(show.concept)+'</div>':'')+
+    '</div>';
+  }
+
+  function scheduleNext(ms){ clearTimeout(timer); timer=setTimeout(function(){ if(playing) step(1); }, ms); }
+  function step(dir){
+    clearJudge(); clearTimeout(timer);
+    idx=Math.max(0,Math.min(totalSteps()-1, idx+dir));
+    render();
+    if(playing && idx===0) scheduleNext(anim(2600));
+    if(idx>=totalSteps()-1){ playing=false; btnPlay.innerHTML='&#9654; Play'; }
+  }
+  btnNext.onclick=function(){ playing=false; btnPlay.innerHTML='&#9654; Play'; step(1); };
+  btnPrev.onclick=function(){ playing=false; btnPlay.innerHTML='&#9654; Play'; step(-1); };
+  btnPlay.onclick=function(){
+    playing=!playing; btnPlay.innerHTML=playing?'&#10073;&#10073; Pause':'&#9654; Play';
+    if(playing){
+      if(idx>=totalSteps()-1) idx=0;
+      render();
+      if(idx===0) scheduleNext(anim(2400));
+    } else { clearJudge(); clearTimeout(timer); }
+  };
+  var speeds=[1,1.5,2,0.5];
+  btnSpd.onclick=function(){ speed=speeds[(speeds.indexOf(speed)+1)%speeds.length]; spdlbl.innerHTML=speed+'&times;'; };
+
+  var ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/replay');
+  ws.onmessage=function(e){
+    var msg=JSON.parse(e.data);
+    if(msg.type==='error'){ stage.innerHTML='<div class="err">'+esc(msg.error)+'</div>'; return; }
+    if(msg.type==='replay'){
+      show=buildShow(msg.replay);
+      if(!show.duels.length){ stage.innerHTML='<div class="err">This replay has no scored rounds to show.</div>'; return; }
+      idx=0; render();
+    }
+  };
+  ws.onerror=function(){ stage.innerHTML='<div class="err">Could not load replay stream.</div>'; };
+})();
+</script>
+</body>
+</html>

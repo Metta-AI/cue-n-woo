@@ -1,5 +1,5 @@
 [project]
-name = "steering-game"
+name = "cue-n-woo"
 version = "0.1.0"
 description = "Local FLAS activation-steering web UI."
 requires-python = ">=3.11"

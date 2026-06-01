@@ -1,4 +1,4 @@
-# Steering Game Player Protocol
+# Cue-n-Woo Player Protocol
 
 Players connect to the Coworld game WebSocket at `/player?slot=<slot>&token=<token>`.
 

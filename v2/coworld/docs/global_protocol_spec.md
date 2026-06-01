@@ -1,4 +1,4 @@
-# Steering Game Global Protocol
+# Cue-n-Woo Global Protocol
 
 Global viewers connect to `/global`. The server sends public snapshots of the episode state.
 
