@@ -12,7 +12,8 @@ The Coworld game runnable:
 - serves `GET /client/global` and `/global`;
 - writes results to `COGAME_RESULTS_URI`;
 - writes replay JSON to `COGAME_SAVE_REPLAY_URI`;
-- queries a local LLM worker through `llm_worker_url`.
+- queries the LLM worker through `llm_worker_url`, signing requests for tournament priority when a key is available
+  (see `docs/worker_auth.md`).
 
 The game config controls token limits, temperature, concept source, FLAS flowtime/steps, and a hard round timer. The
 default round timer is 300 seconds.

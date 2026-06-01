@@ -19,6 +19,7 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 
+from v2 import signing
 from v2.coworld.harness import public_hints, simple_token_count, validate_natural_keyboard_answer
 
 
@@ -39,6 +40,10 @@ def read_data(uri: str) -> bytes:
             return resp.read()
     if parsed.scheme == "file":
         return Path(unquote(parsed.path)).read_bytes()
+    if parsed.scheme == "s3":
+        import boto3
+
+        return boto3.client("s3").get_object(Bucket=parsed.netloc, Key=parsed.path.lstrip("/"))["Body"].read()
     if parsed.scheme == "":
         return Path(uri).read_bytes()
     raise ValueError(f"Unsupported URI for read_data: {uri}")
@@ -94,13 +99,44 @@ def load_concept_list(path: str | None) -> list[str]:
 CONCEPTS = load_concept_list(CONFIG.get("concept_list_path"))
 
 
+def load_signing_key() -> Any | None:
+    """Private key used to claim tournament priority on the worker, or None.
+
+    Hosted episodes fetch the key from a private object that only the game pod's
+    AWS identity can read; local runs may set WORKER_SIGNING_KEY directly. When
+    no key is available the game still works: its worker requests go unsigned and
+    are served at normal priority. Unsigned is the expected mode for any local
+    user, since they cannot read the private key.
+
+    Runtime coupling (verified against metta-ai/metta): the hosted game container
+    runs under the `episode-runner` k8s service account, whose IAM role
+    `orchestrator-eval-worker` has s3:GetObject on `observatory-private`. If infra
+    changes that service account or bucket policy, this fetch breaks (the game
+    then runs unsigned).
+    """
+    inline = os.environ.get("WORKER_SIGNING_KEY")
+    if inline:
+        return signing.load_private_key(inline)
+    key_uri = os.environ.get("WORKER_SIGNING_KEY_URI")
+    if key_uri:
+        seed_b64 = read_data(key_uri).decode("utf-8").strip()
+        return signing.load_private_key(seed_b64)
+    return None
+
+
 class WorkerClient:
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
+        self.signing_key = load_signing_key()
 
     def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         data = json.dumps(payload).encode("utf-8")
-        req = Request(self.base_url + path, data=data, headers={"Content-Type": "application/json"}, method="POST")
+        headers = {"Content-Type": "application/json"}
+        if self.signing_key is not None:
+            timestamp = int(time.time())
+            headers[signing.TIMESTAMP_HEADER] = str(timestamp)
+            headers[signing.SIGNATURE_HEADER] = signing.sign_request(self.signing_key, timestamp, data)
+        req = Request(self.base_url + path, data=data, headers=headers, method="POST")
         try:
             with urlopen(req, timeout=900) as resp:
                 return json.loads(resp.read().decode("utf-8"))

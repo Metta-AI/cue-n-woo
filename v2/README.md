@@ -33,6 +33,14 @@ normal vectors and normalizes each token vector to unit RMS before applying
 `scale`, which matches the scale convention used by RMS-normalized transformer
 hidden states better than raw unbounded Gaussian magnitudes.
 
+## Authentication and priority
+
+The worker serves everyone: unsigned requests run at normal priority with no
+limit. Requests carrying a valid, fresh Ed25519 signature (from the coworld
+game, which holds the private key) run at tournament priority and preempt
+public traffic. The worker holds only the public key. See
+`v2/coworld/docs/worker_auth.md` for the scheme, key delivery, and TLS exposure.
+
 ## Run
 
 From the repo root:

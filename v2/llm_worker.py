@@ -2,17 +2,27 @@
 import argparse
 import base64
 import hashlib
+import heapq
 import itertools
 import json
 import math
 import os
 import gc
+import sys
 import threading
 import time
 import uuid
 from collections import deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+# This module is launched as a script (`python v2/llm_worker.py`), so the repo
+# root is not on sys.path by default. Add it so the shared `v2.signing` module
+# imports the same way it does for the coworld game.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from v2 import signing
 
 
 DEFAULT_FLOW_CKPT = "checkpoints/flas-gemma-2-9b-it/flas-gemma-2-9b-it.safetensors"
@@ -26,10 +36,18 @@ BENCH_TRIALS = 3
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 
+# Lower rank is served first. Tournament-signed requests preempt the unsigned
+# public traffic, which is always accepted but never allowed to starve a
+# tournament episode.
+PRIORITY_TOURNAMENT = 0
+PRIORITY_NORMAL = 1
+
+
 class RequestFuture:
-    def __init__(self, op, payload):
+    def __init__(self, op, payload, priority=PRIORITY_NORMAL):
         self.op = op
         self.payload = payload
+        self.priority = priority
         self.event = threading.Event()
         self.result = None
         self.error = None
@@ -50,19 +68,30 @@ class RequestFuture:
         return self.result
 
 
-class FifoBatchScheduler:
+class PriorityBatchScheduler:
+    """Serves requests highest-priority-first, FIFO within a priority.
+
+    Ordering uses a heap keyed by ``(priority, sequence)`` so tournament-signed
+    requests jump ahead of unsigned public traffic. Once the highest-priority
+    request is chosen, it is batched with other compatible *waiting* requests
+    regardless of their priority, because batching only changes how requests are
+    grouped for the GPU, not which one runs next.
+    """
+
     def __init__(self, model, max_batch_size=DEFAULT_MAX_BATCH_SIZE):
         self.model = model
         self.max_batch_size = max_batch_size
         self.cv = threading.Condition()
-        self.ready = deque()
+        self.ready = []  # heap of (priority, sequence, future)
+        self.sequence = 0
         self.thread = threading.Thread(target=self.run, name="llm-worker-scheduler", daemon=True)
         self.thread.start()
 
-    def submit(self, op, payload):
-        fut = RequestFuture(op, payload)
+    def submit(self, op, payload, priority=PRIORITY_NORMAL):
+        fut = RequestFuture(op, payload, priority)
         with self.cv:
-            self.ready.append(fut)
+            heapq.heappush(self.ready, (priority, self.sequence, fut))
+            self.sequence += 1
             self.cv.notify()
         return fut
 
@@ -75,20 +104,20 @@ class FifoBatchScheduler:
             with self.cv:
                 while not self.ready:
                     self.cv.wait()
-                first = self.ready.popleft()
+                first = heapq.heappop(self.ready)[2]
                 key = compatibility_key(first.op, first.payload)
                 batch = [first]
                 if key is not None:
-                    kept = deque()
+                    kept = []
                     while self.ready and len(batch) < self.max_batch_size:
-                        candidate = self.ready.popleft()
+                        candidate_entry = heapq.heappop(self.ready)
+                        candidate = candidate_entry[2]
                         if compatibility_key(candidate.op, candidate.payload) == key:
                             batch.append(candidate)
                         else:
-                            kept.append(candidate)
-                    while self.ready:
-                        kept.append(self.ready.popleft())
-                    self.ready = kept
+                            kept.append(candidate_entry)
+                    for entry in kept:
+                        heapq.heappush(self.ready, entry)
 
             try:
                 results = self.model.run_batch(first.op, [item.payload for item in batch])
@@ -660,9 +689,32 @@ def percentile(ordered, q):
 class WorkerServer:
     def __init__(self, model, max_batch_size):
         self.model = model
-        self.scheduler = FifoBatchScheduler(model, max_batch_size=max_batch_size)
+        self.scheduler = PriorityBatchScheduler(model, max_batch_size=max_batch_size)
+        # Public key is not a secret; absent key means signing is disabled and
+        # all traffic runs at normal priority.
+        self.public_key = signing.resolve_public_key()
 
-    def submit_many(self, op, payload):
+    def request_priority(self, headers, body):
+        """Tournament priority for a valid, fresh signature; normal otherwise.
+
+        Unsigned or badly-signed requests are NOT rejected: the worker serves
+        everyone. A bad signature simply forfeits the priority bump.
+        """
+        if self.public_key is None:
+            return PRIORITY_NORMAL
+        timestamp_raw = headers.get(signing.TIMESTAMP_HEADER)
+        signature = headers.get(signing.SIGNATURE_HEADER)
+        if not timestamp_raw or not signature:
+            return PRIORITY_NORMAL
+        try:
+            timestamp = int(timestamp_raw)
+        except ValueError:
+            return PRIORITY_NORMAL
+        if signing.verify_request(self.public_key, timestamp, signature, body, now=int(time.time())):
+            return PRIORITY_TOURNAMENT
+        return PRIORITY_NORMAL
+
+    def submit_many(self, op, payload, priority=PRIORITY_NORMAL):
         requests = payload.get("requests")
         if not isinstance(requests, list) or not requests:
             raise ValueError("Payload must include a non-empty requests list.")
@@ -671,7 +723,7 @@ class WorkerServer:
             if not isinstance(request, dict):
                 raise ValueError("Each request must be an object.")
             request.setdefault("id", str(uuid.uuid4()))
-            futures.append(self.scheduler.submit(op, request))
+            futures.append(self.scheduler.submit(op, request, priority))
         return {"results": [future.wait() for future in futures]}
 
 
@@ -690,15 +742,18 @@ def make_handler(worker):
 
         def do_POST(self):
             try:
-                payload = self.read_json()
+                body = self.read_body()
+                payload = json.loads(body.decode("utf-8")) if body else {}
                 if self.path == "/load":
                     self.write_json(worker.model.load(payload))
                     return
                 if self.path == "/generate":
-                    self.write_json(worker.submit_many("generate", payload))
+                    priority = worker.request_priority(self.headers, body)
+                    self.write_json(worker.submit_many("generate", payload, priority))
                     return
                 if self.path == "/choice-logprobs":
-                    self.write_json(worker.submit_many("choice-logprobs", payload))
+                    priority = worker.request_priority(self.headers, body)
+                    self.write_json(worker.submit_many("choice-logprobs", payload, priority))
                     return
                 if self.path == "/bench/microbatch":
                     self.write_json(worker.model.microbatch_bench(payload))
@@ -707,10 +762,9 @@ def make_handler(worker):
             except Exception as exc:
                 self.write_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
 
-        def read_json(self):
+        def read_body(self):
             length = int(self.headers.get("Content-Length", "0"))
-            body = self.rfile.read(length).decode("utf-8") if length else "{}"
-            return json.loads(body)
+            return self.rfile.read(length) if length else b""
 
         def write_json(self, payload, status=HTTPStatus.OK):
             data = json.dumps(payload).encode("utf-8")

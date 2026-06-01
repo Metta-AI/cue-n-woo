@@ -5,6 +5,7 @@ description = "Local FLAS activation-steering web UI."
 requires-python = ">=3.11"
 dependencies = [
     "boto3==1.42.6",
+    "cryptography==48.0.0",
     "flas @ git+https://github.com/flas-ai/FLAS.git@main",
     "huggingface_hub==0.36.2",
     "jsonschema==4.25.1",
