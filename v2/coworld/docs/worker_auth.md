@@ -47,6 +47,11 @@ priority — it is never rejected.
    identity (hosted).
 3. None — the game runs unsigned (normal priority).
 
+Set the `require_signing` config flag (true on the tournament variant) to turn an
+unavailable key into a startup failure instead of a silent unsigned downgrade, so
+a tournament never quietly forfeits its priority and competes with public
+traffic. Local/certification runs leave it false and degrade to unsigned.
+
 ### Hosted runtime coupling
 
 The hosted game container runs under the `episode-runner` Kubernetes service

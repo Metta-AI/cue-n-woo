@@ -99,7 +99,7 @@ def load_concept_list(path: str | None) -> list[str]:
 CONCEPTS = load_concept_list(CONFIG.get("concept_list_path"))
 
 
-def load_signing_key() -> Any | None:
+def load_signing_key(require: bool = False) -> Any | None:
     """Private key used to claim tournament priority on the worker, or None.
 
     Hosted episodes fetch the key from a private object that only the game pod's
@@ -108,26 +108,41 @@ def load_signing_key() -> Any | None:
     are served at normal priority. Unsigned is the expected mode for any local
     user, since they cannot read the private key.
 
+    When ``require`` is true (config ``require_signing``), the inability to sign
+    is a hard error instead of a silent downgrade. Tournaments set this so a
+    broken key fetch fails loudly rather than quietly forfeiting priority and
+    competing with public traffic.
+
     Runtime coupling (verified against metta-ai/metta): the hosted game container
     runs under the `episode-runner` k8s service account, whose IAM role
     `orchestrator-eval-worker` has s3:GetObject on `observatory-private`. If infra
-    changes that service account or bucket policy, this fetch breaks (the game
-    then runs unsigned).
+    changes that service account or bucket policy, this fetch breaks.
     """
     inline = os.environ.get("WORKER_SIGNING_KEY")
     if inline:
         return signing.load_private_key(inline)
     key_uri = os.environ.get("WORKER_SIGNING_KEY_URI")
     if key_uri:
-        seed_b64 = read_data(key_uri).decode("utf-8").strip()
+        # The published manifest sets this URI for every run, but only the hosted
+        # game pod can actually read the private object. A local user has the URI
+        # without S3 access; degrade to unsigned unless signing is required.
+        try:
+            seed_b64 = read_data(key_uri).decode("utf-8").strip()
+        except Exception as exc:
+            if require:
+                raise RuntimeError(f"require_signing is set but WORKER_SIGNING_KEY_URI is unreadable: {exc}") from exc
+            print(f"WORKER_SIGNING_KEY_URI unreadable ({exc}); running unsigned.", flush=True)
+            return None
         return signing.load_private_key(seed_b64)
+    if require:
+        raise RuntimeError("require_signing is set but no WORKER_SIGNING_KEY or WORKER_SIGNING_KEY_URI is configured.")
     return None
 
 
 class WorkerClient:
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
-        self.signing_key = load_signing_key()
+        self.signing_key = load_signing_key(require=bool(CONFIG.get("require_signing", False)))
 
     def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         data = json.dumps(payload).encode("utf-8")

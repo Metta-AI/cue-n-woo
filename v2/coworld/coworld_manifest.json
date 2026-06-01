@@ -8,7 +8,10 @@
     "runnable": {
       "type": "game",
       "image": "{{STEERING_GAME_IMAGE}}",
-      "run": ["python", "v2/coworld/game.py"]
+      "run": ["python", "v2/coworld/game.py"],
+      "env": {
+        "WORKER_SIGNING_KEY_URI": "s3://observatory-private/cue-n-woo/tournament_signing_key"
+      }
     },
     "config_schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -37,7 +40,12 @@
         },
         "llm_worker_url": {
           "type": "string",
-          "default": "http://127.0.0.1:7870"
+          "default": "https://cue-n-woo-worker.softmax-research.net"
+        },
+        "require_signing": {
+          "description": "If true, the game fails to start unless it can load the worker signing key (so tournament priority is guaranteed). If false, a missing or unreadable key degrades to unsigned normal-priority requests. Tournaments should set true.",
+          "type": "boolean",
+          "default": false
         },
         "round_timeout_seconds": {
           "description": "Hard episode timer in seconds.",
@@ -182,11 +190,11 @@
     "protocols": {
       "player": {
         "type": "uri",
-        "value": "https://github.com/metta-ai/steering-game/blob/main/v2/coworld/docs/player_protocol_spec.md"
+        "value": "https://github.com/Metta-AI/cue-n-woo/blob/main/v2/coworld/docs/player_protocol_spec.md"
       },
       "global": {
         "type": "uri",
-        "value": "https://github.com/metta-ai/steering-game/blob/main/v2/coworld/docs/global_protocol_spec.md"
+        "value": "https://github.com/Metta-AI/cue-n-woo/blob/main/v2/coworld/docs/global_protocol_spec.md"
       }
     },
     "docs": {
@@ -248,7 +256,8 @@
       "description": "Two-player default steering game with a five-minute hard timer.",
       "game_config": {
         "players": [{"name": "Alice"}, {"name": "Bob"}],
-        "llm_worker_url": "http://127.0.0.1:7870",
+        "llm_worker_url": "https://cue-n-woo-worker.softmax-research.net",
+        "require_signing": true,
         "round_timeout_seconds": 300,
         "private_questions_per_player": 3,
         "challenge_questions_per_player": 3,
@@ -267,7 +276,7 @@
   "certification": {
     "game_config": {
       "players": [{"name": "Alice"}, {"name": "Bob"}],
-      "llm_worker_url": "http://127.0.0.1:7870",
+      "llm_worker_url": "https://cue-n-woo-worker.softmax-research.net",
       "round_timeout_seconds": 300,
       "private_questions_per_player": 3,
       "challenge_questions_per_player": 3,
