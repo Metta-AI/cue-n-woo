@@ -1,0 +1,84 @@
+# Public HTTPS endpoint for the cue-n-woo LLM worker.
+#
+# The worker runs on an out-of-cluster EC2 L4 box (i-0a91e9577c888a38a) inside
+# the EKS VPC, reachable from the cluster by its private IP. This pair exposes
+# it as https://cue-n-woo-worker.softmax-research.net using the cluster's
+# existing ingress-nginx + cert-manager (letsencrypt) + ExternalDNS automation
+# and the *.softmax-research.net wildcard cert path.
+#
+# NOTE: applied directly with kubectl (not ArgoCD). No ArgoCD app declares these
+# names, so per-app prune will not remove them. Source of truth lives here in
+# the cue-n-woo repo; promote to a devops/ chart if it should become GitOps.
+#
+#   kubectl apply -f v2/coworld/deploy/worker-ingress.yaml
+#
+# The ExternalName must be updated if the worker box is replaced (new private IP).
+# Selector-less Service + a hand-maintained EndpointSlice pointing at the worker's
+# private IP. nginx-ingress populates upstreams from real endpoints, so this routes
+# reliably (an ExternalName service has no ClusterIP and yields 503s under nginx).
+apiVersion: v1
+kind: Service
+metadata:
+  name: cue-n-woo-worker
+  namespace: default
+  labels:
+    app: cue-n-woo-worker
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 7870
+      targetPort: 7870
+      protocol: TCP
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: cue-n-woo-worker
+  namespace: default
+  labels:
+    kubernetes.io/service-name: cue-n-woo-worker  # binds this slice to the Service
+    app: cue-n-woo-worker
+addressType: IPv4
+ports:
+  - name: http
+    port: 7870
+    protocol: TCP
+endpoints:
+  - addresses:
+      - 10.0.48.209  # private IP of i-0a91e9577c888a38a; update if the box is replaced
+    conditions:
+      ready: true
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cue-n-woo-worker
+  namespace: default
+  labels:
+    app: cue-n-woo-worker
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Worker request/response bodies (prompts, choice lists) can be sizeable and
+    # generation is slow; raise limits above the nginx defaults.
+    nginx.ingress.kubernetes.io/proxy-body-size: 25m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "900"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "900"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: cue-n-woo-worker.softmax-research.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: cue-n-woo-worker
+                port:
+                  number: 7870
+  tls:
+    - hosts:
+        - cue-n-woo-worker.softmax-research.net
+      secretName: cue-n-woo-worker-tls
