@@ -142,9 +142,14 @@ def load_signing_key(require: bool = False) -> Any | None:
 class WorkerClient:
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
-        self.signing_key = load_signing_key(require=bool(CONFIG.get("require_signing", False)))
+        self.stub = bool(CONFIG.get("stub_worker", False))
+        # Don't fetch/require a signing key in stub mode: certification runs
+        # offline with no worker and no AWS credentials.
+        self.signing_key = None if self.stub else load_signing_key(require=bool(CONFIG.get("require_signing", False)))
 
     def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if self.stub:
+            return self._stub_response(path, payload)
         data = json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json"}
         if self.signing_key is not None:
@@ -162,6 +167,30 @@ class WorkerClient:
                 raise RuntimeError(err.get("error", body)) from exc
             except json.JSONDecodeError:
                 raise RuntimeError(body) from exc
+
+    def _stub_response(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Deterministic offline responses so certification needs no live worker.
+
+        Mirrors the real worker's response shapes without any model. Charlie
+        "answers" are derived from the request so the smoke test exercises the
+        full game flow (ask -> propose -> blind answer -> score) end to end.
+        """
+        requests = payload.get("requests", [])
+        if path == "/generate":
+            results = []
+            for req in requests:
+                prompt = str(req.get("prompt", ""))
+                results.append({"id": req.get("id"), "text": f"stub answer ({len(prompt)} chars)",
+                                "finish_reason": "eos", "input_tokens": 0, "output_tokens": 4, "latency_ms": 0.0})
+            return {"results": results}
+        if path == "/choice-logprobs":
+            results = []
+            for req in requests:
+                choices = req.get("choices", [])
+                n = max(1, len(choices))
+                results.append({"id": req.get("id"), "probabilities": [1.0 / n] * n, "orderings": []})
+            return {"results": results}
+        raise RuntimeError(f"stub worker does not handle {path}")
 
 
 def empty_player() -> dict[str, Any]:
@@ -299,6 +328,9 @@ def enforce_answer(label: str, text: str) -> None:
 
 state = EpisodeState()
 app = FastAPI()
+# Set in main(); finalize() flips should_exit so the container exits after the
+# episode and the runner can collect artifacts.
+SERVER: uvicorn.Server | None = None
 
 
 @app.get("/healthz")
@@ -503,8 +535,16 @@ async def finalize(timeout: bool) -> None:
             "hidden_concept": hidden_concept,
         }
     write_data(RESULTS_URI, json.dumps(results), content_type="application/json")
-    write_data(REPLAY_URI, zlib.compress(json.dumps(replay).encode("utf-8")), content_type="application/octet-stream")
+    # Write the replay artifact as raw JSON. The Coworld runner reads this file
+    # and handles its own compression for the replay-viewer container; writing
+    # compressed bytes here would be double-compressed and fail to load.
+    write_data(REPLAY_URI, json.dumps(replay), content_type="application/json")
     await broadcast()
+    # The episode is over and artifacts are written. Signal the server to exit so
+    # the Coworld runner, which waits for the game container to exit before
+    # collecting results/replay, can finish. (Replay mode never calls finalize.)
+    if SERVER is not None:
+        SERVER.should_exit = True
 
 
 async def score_round(alice: dict[str, Any], bob: dict[str, Any], concept: dict[str, Any]) -> tuple[list[float], list[dict[str, Any]]]:
@@ -749,7 +789,8 @@ ws.onmessage=e=>document.getElementById('out').textContent=JSON.stringify(JSON.p
 
 
 def main() -> None:
-    uvicorn.run(
+    global SERVER
+    config = uvicorn.Config(
         app,
         host=GAME_HOST,
         port=GAME_PORT,
@@ -757,6 +798,8 @@ def main() -> None:
         ws_ping_interval=float(CONFIG.get("websocket_ping_interval_seconds", 60)),
         ws_ping_timeout=float(CONFIG.get("websocket_ping_timeout_seconds", 300)),
     )
+    SERVER = uvicorn.Server(config)
+    SERVER.run()
 
 
 if __name__ == "__main__":

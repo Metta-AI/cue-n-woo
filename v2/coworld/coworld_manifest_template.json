@@ -2,13 +2,16 @@
   "$schema": "https://raw.githubusercontent.com/Metta-AI/coworld/main/src/coworld/coworld_manifest_schema.json",
   "game": {
     "name": "cue_n_woo",
-    "version": "0.1.0",
     "description": "Two-player theory-of-mind game backed by a local FLAS/Gemma worker.",
     "owner": "metta-ai",
     "runnable": {
       "type": "game",
       "image": "{{CUE_N_WOO_IMAGE}}",
-      "run": ["python", "v2/coworld/game.py"],
+      "run": [
+        "python",
+        "-m",
+        "v2.coworld.game"
+      ],
       "env": {
         "WORKER_SIGNING_KEY_URI": "s3://observatory-private/cue-n-woo/tournament_signing_key"
       }
@@ -17,25 +20,45 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "additionalProperties": false,
-      "required": ["tokens", "players"],
+      "required": [
+        "tokens",
+        "players"
+      ],
       "properties": {
         "tokens": {
           "description": "One connection token per player slot. Runner-injected.",
           "type": "array",
           "minItems": 2,
           "maxItems": 2,
-          "items": {"type": "string", "minLength": 1}
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
         "players": {
           "type": "array",
           "minItems": 2,
           "maxItems": 2,
-          "default": [{"name": "Alice"}, {"name": "Bob"}],
+          "default": [
+            {
+              "name": "Alice"
+            },
+            {
+              "name": "Bob"
+            }
+          ],
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["name"],
-            "properties": {"name": {"type": "string", "minLength": 1}}
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
           }
         },
         "llm_worker_url": {
@@ -113,7 +136,11 @@
         "concept_type": {
           "description": "list selects from data/concepts.json; specific uses specific_concept; random uses a seeded random FLAS vector.",
           "type": "string",
-          "enum": ["list", "specific", "random"],
+          "enum": [
+            "list",
+            "specific",
+            "random"
+          ],
           "default": "list"
         },
         "concept_index": {
@@ -147,7 +174,10 @@
         },
         "random_concept_normalize": {
           "type": "string",
-          "enum": ["unit_rms", "none"],
+          "enum": [
+            "unit_rms",
+            "none"
+          ],
           "default": "unit_rms"
         },
         "flas_flowtime": {
@@ -179,17 +209,33 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "additionalProperties": true,
-      "required": ["scores", "status", "timeout"],
+      "required": [
+        "scores",
+        "status",
+        "timeout"
+      ],
       "properties": {
         "scores": {
           "type": "array",
           "minItems": 2,
           "maxItems": 2,
-          "items": {"type": "number"}
+          "items": {
+            "type": "number"
+          }
         },
-        "status": {"type": "string", "enum": ["complete", "timeout"]},
-        "timeout": {"type": "boolean"},
-        "duration_seconds": {"type": "number"}
+        "status": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "timeout"
+          ]
+        },
+        "timeout": {
+          "type": "boolean"
+        },
+        "duration_seconds": {
+          "type": "number"
+        }
       }
     },
     "protocols": {
@@ -229,7 +275,11 @@
       "name": "Baseline Player",
       "type": "player",
       "image": "{{CUE_N_WOO_IMAGE}}",
-      "run": ["python", "v2/coworld/player.py"],
+      "run": [
+        "python",
+        "-m",
+        "v2.coworld.player"
+      ],
       "description": "Simple deterministic Coworld player for certification."
     },
     {
@@ -237,7 +287,11 @@
       "name": "Claude Policy",
       "type": "player",
       "image": "{{CUE_N_WOO_IMAGE}}",
-      "run": ["python", "v2/coworld/claude_policy.py"],
+      "run": [
+        "python",
+        "-m",
+        "v2.coworld.claude_policy"
+      ],
       "description": "General Bedrock Claude policy harness that uses submit_action tool calls and retries validation errors."
     },
     {
@@ -245,7 +299,11 @@
       "name": "Kyle Policy",
       "type": "player",
       "image": "{{CUE_N_WOO_IMAGE}}",
-      "run": ["python", "v2/coworld/kyle_policy.py"],
+      "run": [
+        "python",
+        "-m",
+        "v2.coworld.kyle_policy"
+      ],
       "description": "Heuristic policy that uses Kyle's phase-specific prompt ideas from the harness."
     }
   ],
@@ -260,7 +318,14 @@
       "name": "Default",
       "description": "Two-player default cue-n-woo game with a five-minute hard timer.",
       "game_config": {
-        "players": [{"name": "Alice"}, {"name": "Bob"}],
+        "players": [
+          {
+            "name": "Alice"
+          },
+          {
+            "name": "Bob"
+          }
+        ],
         "llm_worker_url": "https://cue-n-woo-worker.softmax-research.net",
         "require_signing": true,
         "round_timeout_seconds": 300,
@@ -280,7 +345,14 @@
   ],
   "certification": {
     "game_config": {
-      "players": [{"name": "Alice"}, {"name": "Bob"}],
+      "players": [
+        {
+          "name": "Alice"
+        },
+        {
+          "name": "Bob"
+        }
+      ],
       "llm_worker_url": "https://cue-n-woo-worker.softmax-research.net",
       "stub_worker": true,
       "round_timeout_seconds": 300,
@@ -298,8 +370,12 @@
       "reveal_concept_to_clients": false
     },
     "players": [
-      {"player_id": "baseline-player"},
-      {"player_id": "baseline-player"}
+      {
+        "player_id": "baseline-player"
+      },
+      {
+        "player_id": "baseline-player"
+      }
     ]
   }
 }

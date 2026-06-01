@@ -1,0 +1,8 @@
+services:
+  cue-n-woo:
+    image: coworld-cue-n-woo:latest
+    platform: linux/amd64
+    build:
+      # Context is the v2/ dir so the Dockerfile can COPY signing.py + coworld/.
+      context: ..
+      dockerfile: coworld/Dockerfile
