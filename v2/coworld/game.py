@@ -171,9 +171,9 @@ class WorkerClient:
     def _stub_response(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Deterministic offline responses so certification needs no live worker.
 
-        Mirrors the real worker's response shapes without any model. Charlie
+        Mirrors the real worker's response shapes without any model. The judge
         "answers" are derived from the request so the smoke test exercises the
-        full game flow (ask -> propose -> blind answer -> score) end to end.
+        full game flow (ask -> propose -> answer -> score) end to end.
         """
         requests = payload.get("requests", [])
         if path == "/generate":
@@ -194,12 +194,17 @@ class WorkerClient:
 
 
 def empty_player() -> dict[str, Any]:
-    return {"charlie": [], "proposals": [], "answers": []}
+    return {"judge": [], "proposals": [], "answers": []}
+
+
+def judge_max_tokens() -> int:
+    return int(CONFIG.get("judge_max_tokens", CONFIG.get("max_output_tokens", 128)))
 
 
 class EpisodeState:
     def __init__(self) -> None:
-        self.players = {"alice": empty_player(), "bob": empty_player()}
+        # Players are addressed by slot index (0, 1, ...) matching config["players"].
+        self.players = [empty_player() for _ in PLAYERS]
         self.connections: dict[int, WebSocket] = {}
         self.global_connections: set[WebSocket] = set()
         self.results: dict[str, Any] | None = None
@@ -214,21 +219,18 @@ class EpisodeState:
     def phase(self) -> str:
         if self.results is not None:
             return "reveal"
-        if any(len(player["charlie"]) < int(CONFIG.get("private_questions_per_player", 3)) for player in self.players.values()):
+        if any(len(player["judge"]) < int(CONFIG.get("private_questions_per_player", 3)) for player in self.players):
             return "private_questions"
-        if any(len(player["proposals"]) < int(CONFIG.get("challenge_questions_per_player", 3)) for player in self.players.values()):
+        if any(len(player["proposals"]) < int(CONFIG.get("challenge_questions_per_player", 3)) for player in self.players):
             return "proposals"
-        if any(len(player["answers"]) < int(CONFIG.get("challenge_questions_per_player", 3)) for player in self.players.values()):
-            return "blind_answers"
+        if any(len(player["answers"]) < int(CONFIG.get("challenge_questions_per_player", 3)) for player in self.players):
+            return "answers"
         return "ready_to_score"
 
     def remaining_seconds(self) -> int:
         return max(0, int(self.deadline - time.time()))
 
-    def view(self, role: str | None = None, *, global_view: bool = False) -> dict[str, Any]:
-        if role not in self.players:
-            role = "alice"
-        other = "bob" if role == "alice" else "alice"
+    def view(self, slot: int | None = None, *, global_view: bool = False) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "type": "state",
             "phase": self.phase(),
@@ -236,31 +238,35 @@ class EpisodeState:
             "limits": {
                 "max_answer_tokens": int(CONFIG.get("max_answer_tokens", 12)),
                 "max_question_tokens": int(CONFIG.get("max_question_tokens", 1024)),
-                "charlie_max_tokens": int(CONFIG.get("charlie_max_tokens", CONFIG.get("max_output_tokens", 128))),
+                "judge_max_tokens": judge_max_tokens(),
             },
             "harness": public_hints(),
-            "counts": {
-                "alice_chats": len(self.players["alice"]["charlie"]),
-                "bob_chats": len(self.players["bob"]["charlie"]),
-                "alice_proposals": len(self.players["alice"]["proposals"]),
-                "bob_proposals": len(self.players["bob"]["proposals"]),
-                "alice_answers": len(self.players["alice"]["answers"]),
-                "bob_answers": len(self.players["bob"]["answers"]),
-            },
-            "public_questions": {
-                "alice": [{"question": proposal["question"]} for proposal in self.players["alice"]["proposals"]],
-                "bob": [{"question": proposal["question"]} for proposal in self.players["bob"]["proposals"]],
-            },
+            # Per-player aggregate counts, indexed by slot.
+            "counts": [
+                {
+                    "chats": len(player["judge"]),
+                    "proposals": len(player["proposals"]),
+                    "answers": len(player["answers"]),
+                }
+                for player in self.players
+            ],
+            # Public challenge questions per player, indexed by slot.
+            "public_questions": [
+                [{"question": proposal["question"]} for proposal in player["proposals"]]
+                for player in self.players
+            ],
             "results": public_results(self.results),
             "done": self.done,
         }
-        if not global_view:
+        if not global_view and slot is not None and 0 <= slot < len(self.players):
+            other = 1 - slot if len(self.players) == 2 else slot
             payload.update(
                 {
-                    "slot": 0 if role == "alice" else 1,
-                    "role": role,
-                    "me": self.players[role],
-                    "opponent_questions": [{"question": proposal["question"]} for proposal in self.players[other]["proposals"]],
+                    "slot": slot,
+                    "me": self.players[slot],
+                    "opponent_questions": [
+                        {"question": proposal["question"]} for proposal in self.players[other]["proposals"]
+                    ],
                 }
             )
         return payload
@@ -301,8 +307,7 @@ def public_results(results: dict[str, Any] | None) -> dict[str, Any] | None:
 
 def model_safe_text(text: str) -> str:
     replacements = {
-        r"\balice\b": "entry one",
-        r"\bbob\b": "entry two",
+        r"\bjudge\b": "entry three",
         r"\bcharlie\b": "entry three",
         r"\bplayer\b": "entry",
         r"\bplayers\b": "entries",
@@ -365,15 +370,14 @@ async def player_socket(websocket: WebSocket) -> None:
     if slot < 0 or slot >= len(TOKENS) or TOKENS[slot] != token:
         await websocket.close(code=1008)
         return
-    role = "alice" if slot == 0 else "bob"
     await websocket.accept()
     async with state.lock:
         state.connections[slot] = websocket
-    await websocket.send_json(state.view(role))
+    await websocket.send_json(state.view(slot))
     try:
         async for action in websocket.iter_json():
             try:
-                await handle_action(role, action)
+                await handle_action(slot, action)
             except Exception as exc:
                 await websocket.send_json({"type": "error", "error": str(exc)})
             await broadcast()
@@ -413,7 +417,7 @@ async def replay_socket(websocket: WebSocket) -> None:
         pass
 
 
-async def handle_action(role: str, action: dict[str, Any]) -> None:
+async def handle_action(slot: int, action: dict[str, Any]) -> None:
     if state.done:
         raise ValueError("Episode is over.")
     if state.remaining_seconds() <= 0:
@@ -421,24 +425,24 @@ async def handle_action(role: str, action: dict[str, Any]) -> None:
         return
     kind = action.get("type")
     if kind == "ask":
-        await ask_charlie(role, str(action.get("question", "")))
+        await ask_judge(slot, str(action.get("question", "")))
     elif kind == "propose":
-        await submit_proposals(role, action.get("proposals", []))
+        await submit_proposals(slot, action.get("proposals", []))
     elif kind == "answer":
-        await submit_answers(role, action.get("answers", []))
+        await submit_answers(slot, action.get("answers", []))
     else:
         raise ValueError("Unknown action type.")
     if state.phase() == "ready_to_score":
         await finalize(timeout=False)
 
 
-async def ask_charlie(role: str, question: str) -> None:
+async def ask_judge(slot: int, question: str) -> None:
     question = question.strip()
     if not question:
         raise ValueError("Question is required.")
     enforce_simple_token_limit("Question", question, int(CONFIG.get("max_question_tokens", 1024)))
     async with state.lock:
-        if len(state.players[role]["charlie"]) >= int(CONFIG.get("private_questions_per_player", 3)):
+        if len(state.players[slot]["judge"]) >= int(CONFIG.get("private_questions_per_player", 3)):
             raise ValueError("This slot already used all private questions.")
         concept = concept_for_worker(state.hidden_concept)
     prompt = "Answer the question directly and helpfully.\n\n" f"Question: {model_safe_text(question)}"
@@ -455,7 +459,7 @@ async def ask_charlie(role: str, question: str) -> None:
                         "steps": int(CONFIG.get("flas_steps", 3)),
                     },
                     "sampling": {
-                        "max_tokens": int(CONFIG.get("charlie_max_tokens", CONFIG.get("max_output_tokens", 128))),
+                        "max_tokens": judge_max_tokens(),
                         "max_prompt_tokens": int(CONFIG.get("max_prompt_tokens", 1024)),
                         "temperature": float(CONFIG.get("temperature", 0.7)),
                     },
@@ -465,11 +469,11 @@ async def ask_charlie(role: str, question: str) -> None:
     )
     answer = response["results"][0]["text"]
     async with state.lock:
-        state.players[role]["charlie"].append({"question": question, "answer": answer})
-        state.events.append({"t": time.time(), "role": role, "type": "ask"})
+        state.players[slot]["judge"].append({"question": question, "answer": answer})
+        state.events.append({"t": time.time(), "slot": slot, "type": "ask"})
 
 
-async def submit_proposals(role: str, proposals: list[dict[str, Any]]) -> None:
+async def submit_proposals(slot: int, proposals: list[dict[str, Any]]) -> None:
     expected = int(CONFIG.get("challenge_questions_per_player", 3))
     if len(proposals) != expected:
         raise ValueError(f"Submit exactly {expected} questions and answers.")
@@ -478,40 +482,42 @@ async def submit_proposals(role: str, proposals: list[dict[str, Any]]) -> None:
         question = str(proposal.get("question", "")).strip()
         answer = str(proposal.get("answer", "")).strip()
         if not question or not answer:
-            raise ValueError("Every proposed question and hidden answer must be non-empty.")
+            raise ValueError("Every proposed question and answer must be non-empty.")
         enforce_simple_token_limit("Question", question, int(CONFIG.get("max_question_tokens", 1024)))
-        enforce_answer("Hidden answer", answer)
+        enforce_answer("Answer", answer)
         cleaned.append({"question": question, "answer": answer})
     async with state.lock:
         if state.phase() != "proposals":
             raise ValueError("Both slots must ask private questions before proposals.")
-        state.players[role]["proposals"] = cleaned
-        state.events.append({"t": time.time(), "role": role, "type": "propose"})
+        state.players[slot]["proposals"] = cleaned
+        state.events.append({"t": time.time(), "slot": slot, "type": "propose"})
 
 
-async def submit_answers(role: str, answers: list[Any]) -> None:
+async def submit_answers(slot: int, answers: list[Any]) -> None:
     expected = int(CONFIG.get("challenge_questions_per_player", 3))
     cleaned = [str(answer).strip() for answer in answers]
-    if len(cleaned) != expected or any(not answer for answer in cleaned):
-        raise ValueError(f"Submit exactly {expected} non-empty answers.")
+    if len(cleaned) != expected:
+        raise ValueError(f"Submit exactly {expected} answers.")
+    # An empty answer is a permitted decline; it scores 0 (see answer_score).
+    # Non-empty answers must still satisfy the natural-keyboard token rules.
     for answer in cleaned:
-        enforce_answer("Blind answer", answer)
+        if answer:
+            enforce_answer("Answer", answer)
     async with state.lock:
-        if state.phase() != "blind_answers":
-            raise ValueError("Both slots must submit proposed questions before blind answers.")
-        state.players[role]["answers"] = cleaned
-        state.events.append({"t": time.time(), "role": role, "type": "answer"})
+        if state.phase() != "answers":
+            raise ValueError("Both slots must submit proposed questions before answering.")
+        state.players[slot]["answers"] = cleaned
+        state.events.append({"t": time.time(), "slot": slot, "type": "answer"})
 
 
 async def finalize(timeout: bool) -> None:
     async with state.lock:
         if state.done:
             return
-        alice = json.loads(json.dumps(state.players["alice"]))
-        bob = json.loads(json.dumps(state.players["bob"]))
+        players = json.loads(json.dumps(state.players))
         hidden_concept = dict(state.hidden_concept)
         state.done = True
-    scores, rows = await score_round(alice, bob, hidden_concept)
+    scores, rows = await score_round(players, hidden_concept)
     results = {
         "scores": scores,
         "status": "timeout" if timeout else "complete",
@@ -547,30 +553,37 @@ async def finalize(timeout: bool) -> None:
         SERVER.should_exit = True
 
 
-async def score_round(alice: dict[str, Any], bob: dict[str, Any], concept: dict[str, Any]) -> tuple[list[float], list[dict[str, Any]]]:
+async def score_round(players: list[dict[str, Any]], concept: dict[str, Any]) -> tuple[list[float], list[dict[str, Any]]]:
     rows = []
-    alice_points = 0.0
-    bob_points = 0.0
-    context = scoring_context(alice, bob)
-    for idx, proposal in enumerate(alice["proposals"]):
-        opponent = bob["answers"][idx] if idx < len(bob["answers"]) else ""
-        score = await answer_score(context, proposal["question"], proposal["answer"], opponent, concept)
-        alice_points += score["secret_score_points"]
-        bob_points += score["opponent_score_points"]
-        rows.append({"submitter": "alice", "owner": "alice", "question": proposal["question"], "secret_answer": proposal["answer"], "opponent_answer": opponent, **score})
-    for idx, proposal in enumerate(bob["proposals"]):
-        opponent = alice["answers"][idx] if idx < len(alice["answers"]) else ""
-        score = await answer_score(context, proposal["question"], proposal["answer"], opponent, concept)
-        bob_points += score["secret_score_points"]
-        alice_points += score["opponent_score_points"]
-        rows.append({"submitter": "bob", "owner": "bob", "question": proposal["question"], "secret_answer": proposal["answer"], "opponent_answer": opponent, **score})
-    return [alice_points, bob_points], rows
+    points = [0.0 for _ in players]
+    context = scoring_context(players)
+    # Each player's challenge questions are scored against the one opponent in a
+    # two-player game. "submitter"/"owner" are slot indices; "secret" is the
+    # author's own answer, "opponent" is the other slot's answer to that question.
+    for slot, player in enumerate(players):
+        other = 1 - slot if len(players) == 2 else slot
+        opponent_player = players[other]
+        for idx, proposal in enumerate(player["proposals"]):
+            opponent = opponent_player["answers"][idx] if idx < len(opponent_player["answers"]) else ""
+            score = await answer_score(context, proposal["question"], proposal["answer"], opponent, concept)
+            points[slot] += score["secret_score_points"]
+            points[other] += score["opponent_score_points"]
+            rows.append({
+                "submitter": slot,
+                "owner": slot,
+                "opponent": other,
+                "question": proposal["question"],
+                "secret_answer": proposal["answer"],
+                "opponent_answer": opponent,
+                **score,
+            })
+    return points, rows
 
 
-def scoring_context(alice: dict[str, Any], bob: dict[str, Any]) -> str:
-    def transcript(section: str, player: dict[str, Any]) -> str:
+def scoring_context(players: list[dict[str, Any]]) -> str:
+    def transcript(section: int, player: dict[str, Any]) -> str:
         turns = []
-        for idx, turn in enumerate(player["charlie"]):
+        for idx, turn in enumerate(player["judge"]):
             turns.append(
                 f"Record {section}.{idx + 1} question: {model_safe_text(turn['question'])}\n"
                 f"Record {section}.{idx + 1} answer: {model_safe_text(turn['answer'])}"
@@ -578,14 +591,58 @@ def scoring_context(alice: dict[str, Any], bob: dict[str, Any]) -> str:
         return "\n\n".join(turns)
 
     public_questions = []
-    for idx, proposal in enumerate(alice["proposals"]):
-        public_questions.append(f"Question group 1.{idx + 1}: {model_safe_text(proposal['question'])}")
-    for idx, proposal in enumerate(bob["proposals"]):
-        public_questions.append(f"Question group 2.{idx + 1}: {model_safe_text(proposal['question'])}")
-    return "\n\n".join(["Reference material:", transcript("1", alice), transcript("2", bob), "Question list:", "\n".join(public_questions)])
+    for slot, player in enumerate(players):
+        for idx, proposal in enumerate(player["proposals"]):
+            public_questions.append(f"Question group {slot + 1}.{idx + 1}: {model_safe_text(proposal['question'])}")
+    sections = [transcript(slot + 1, player) for slot, player in enumerate(players)]
+    return "\n\n".join(["Reference material:", *sections, "Question list:", "\n".join(public_questions)])
+
+
+def is_non_answer(answer: str) -> bool:
+    """A non-answer is an empty/whitespace decline. It always scores 0."""
+    return not str(answer).strip()
+
+
+def non_answer_score(secret_missing: bool, opponent_missing: bool) -> dict[str, Any]:
+    """Score a round where at least one side declined to answer.
+
+    A non-answer is worth 0. A real answer facing a non-answer wins uncontested
+    (full base + beat bonus). If both sides declined, the round is a no-contest
+    and both score 0.
+    """
+    secret_real = not secret_missing
+    opponent_real = not opponent_missing
+    secret_base = SCORE_SCALE if secret_real else 0.0
+    opponent_base = SCORE_SCALE if opponent_real else 0.0
+    # The beat bonus only goes to a real answer that faced a non-answer.
+    secret_bonus = BEAT_BONUS_POINTS if (secret_real and opponent_missing) else 0.0
+    opponent_bonus = BEAT_BONUS_POINTS if (opponent_real and secret_missing) else 0.0
+    return {
+        "score_points": secret_base + secret_bonus,
+        "secret_score_points": secret_base + secret_bonus,
+        "opponent_score_points": opponent_base + opponent_bonus,
+        "base_points": secret_base,
+        "secret_base_points": secret_base,
+        "opponent_base_points": opponent_base,
+        "bonus_points": secret_bonus,
+        "secret_bonus_points": secret_bonus,
+        "opponent_bonus_points": opponent_bonus,
+        "score_margin": (1.0 if secret_real else 0.0) - (1.0 if opponent_real else 0.0),
+        "average_secret_probability": 1.0 if secret_real else 0.0,
+        "average_opponent_probability": 1.0 if opponent_real else 0.0,
+        "duplicate_conflict": False,
+        "secret_missing": secret_missing,
+        "opponent_missing": opponent_missing,
+        "no_contest": secret_missing and opponent_missing,
+        "orderings": [],
+    }
 
 
 async def answer_score(context: str, question: str, secret_answer: str, opponent_answer: str, concept: dict[str, Any]) -> dict[str, Any]:
+    secret_missing = is_non_answer(secret_answer)
+    opponent_missing = is_non_answer(opponent_answer)
+    if secret_missing or opponent_missing:
+        return non_answer_score(secret_missing, opponent_missing)
     conflict = answer_conflict(secret_answer, opponent_answer)
     if conflict is not None:
         duplicate_answer_count = len([secret_answer, opponent_answer])
@@ -614,25 +671,6 @@ async def answer_score(context: str, question: str, secret_answer: str, opponent
             "average_opponent_probability": shared_probability,
             "duplicate_conflict": True,
             "canonical_answer": conflict,
-            "orderings": [],
-        }
-    if not opponent_answer:
-        secret_base_points = SCORE_SCALE
-        secret_bonus_points = BEAT_BONUS_POINTS
-        return {
-            "score_points": secret_base_points + secret_bonus_points,
-            "secret_score_points": secret_base_points + secret_bonus_points,
-            "opponent_score_points": 0.0,
-            "base_points": secret_base_points,
-            "secret_base_points": secret_base_points,
-            "opponent_base_points": 0.0,
-            "bonus_points": secret_bonus_points,
-            "secret_bonus_points": secret_bonus_points,
-            "opponent_bonus_points": 0.0,
-            "score_margin": 1.0,
-            "average_secret_probability": 1.0,
-            "average_opponent_probability": 0.0,
-            "duplicate_conflict": False,
             "orderings": [],
         }
     first = await option_selection_probs(context, question, secret_answer, opponent_answer, concept, reverse=False)
@@ -721,9 +759,8 @@ async def broadcast() -> None:
         targets = [(slot, ws) for slot, ws in state.connections.items()]
         globals_ = list(state.global_connections)
     for slot, ws in targets:
-        role = "alice" if slot == 0 else "bob"
         with suppress(Exception):
-            await ws.send_json(state.view(role))
+            await ws.send_json(state.view(slot))
     for ws in globals_:
         with suppress(Exception):
             await ws.send_json(state.view(global_view=True))
@@ -753,9 +790,9 @@ button{background:#1f766b;color:white;border:0;border-radius:6px;font-weight:700
 .muted{color:#667085;font-size:13px}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}pre{white-space:pre-wrap}
 </style></head><body><main>
 <h1>Cue-n-Woo</h1><div class="panel"><strong id="phase"></strong><div id="timer" class="muted"></div><div id="status" class="muted"></div></div>
-<div class="panel"><h2>Ask Charlie</h2><textarea id="ask"></textarea><button onclick="sendAsk()">Ask</button></div>
+<div class="panel"><h2>Ask the Judge</h2><textarea id="ask"></textarea><button onclick="sendAsk()">Ask</button></div>
 <div class="panel"><h2>Proposals</h2><div id="props"></div><button onclick="sendProps()">Submit Proposals</button></div>
-<div class="panel"><h2>Blind Answers</h2><div id="answers"></div><button onclick="sendAnswers()">Submit Answers</button></div>
+<div class="panel"><h2>Answers</h2><div id="answers"></div><button onclick="sendAnswers()">Submit Answers</button></div>
 <div class="panel"><h2>Transcript</h2><pre id="transcript"></pre></div>
 <div class="panel"><h2>Public Questions</h2><pre id="public"></pre></div>
 <div class="panel"><h2>Results</h2><pre id="results"></pre></div>
@@ -764,12 +801,12 @@ const q=new URLSearchParams(location.search);let state=null;
 let ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/player?slot=${q.get('slot')||0}&token=${encodeURIComponent(q.get('token')||'')}`);
 const $=id=>document.getElementById(id);
 function ensureInputs(){
- if(!$('props').children.length){for(let i=0;i<3;i++)$('props').insertAdjacentHTML('beforeend',`<textarea id="pq${i}" placeholder="question ${i+1}"></textarea><input id="pa${i}" placeholder="hidden answer ${i+1}">`)}
+ if(!$('props').children.length){for(let i=0;i<3;i++)$('props').insertAdjacentHTML('beforeend',`<textarea id="pq${i}" placeholder="question ${i+1}"></textarea><input id="pa${i}" placeholder="answer ${i+1}">`)}
  if(!$('answers').children.length){for(let i=0;i<3;i++)$('answers').insertAdjacentHTML('beforeend',`<div class="muted" id="oq${i}"></div><input id="aa${i}" placeholder="answer ${i+1}">`)}
 }
 ws.onmessage=e=>{const msg=JSON.parse(e.data);if(msg.type==='error'){$('status').textContent=msg.error;return}state=msg;render()};
-function render(){ensureInputs();$('phase').textContent=`role: ${state.role} phase: ${state.phase}`;$('timer').textContent=`remaining: ${state.remaining_seconds}s`;
- $('transcript').textContent=(state.me.charlie||[]).map((t,i)=>`Q${i+1}: ${t.question}\\nCharlie: ${t.answer}`).join('\\n\\n');
+function render(){ensureInputs();$('phase').textContent=`slot: ${state.slot} phase: ${state.phase}`;$('timer').textContent=`remaining: ${state.remaining_seconds}s`;
+ $('transcript').textContent=(state.me.judge||[]).map((t,i)=>`Q${i+1}: ${t.question}\\nJudge: ${t.answer}`).join('\\n\\n');
  let opp=state.opponent_questions||[];for(let i=0;i<3;i++)$('oq'+i).textContent=opp[i]?.question||`Opponent question ${i+1} not available yet`;
  $('public').textContent=JSON.stringify(state.public_questions,null,2);$('results').textContent=state.results?JSON.stringify(state.results,null,2):'';}
 function send(o){ws.send(JSON.stringify(o))}

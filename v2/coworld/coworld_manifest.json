@@ -2,40 +2,52 @@
   "$schema": "https://raw.githubusercontent.com/Metta-AI/coworld/main/src/coworld/coworld_manifest_schema.json",
   "game": {
     "name": "cue_n_woo",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Two-player theory-of-mind game backed by a local FLAS/Gemma worker.",
     "owner": "metta-ai",
-    "runnable": {
-      "type": "game",
-      "image": "{{CUE_N_WOO_IMAGE}}",
-      "run": ["python", "v2/coworld/game.py"],
-      "env": {
-        "WORKER_SIGNING_KEY_URI": "s3://observatory-private/cue-n-woo/tournament_signing_key"
-      }
-    },
     "config_schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "additionalProperties": false,
-      "required": ["tokens", "players"],
+      "required": [
+        "tokens",
+        "players"
+      ],
       "properties": {
         "tokens": {
           "description": "One connection token per player slot. Runner-injected.",
           "type": "array",
           "minItems": 2,
           "maxItems": 2,
-          "items": {"type": "string", "minLength": 1}
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
         "players": {
           "type": "array",
           "minItems": 2,
           "maxItems": 2,
-          "default": [{"name": "Alice"}, {"name": "Bob"}],
+          "default": [
+            {
+              "name": "Alice"
+            },
+            {
+              "name": "Bob"
+            }
+          ],
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["name"],
-            "properties": {"name": {"type": "string", "minLength": 1}}
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
           }
         },
         "llm_worker_url": {
@@ -79,7 +91,7 @@
           "default": 1024
         },
         "max_answer_tokens": {
-          "description": "Simple whitespace-token limit for hidden answers and blind answers. Answers may contain printable keyboard characters and single spaces only.",
+          "description": "Simple whitespace-token limit for player answers. Answers may contain printable keyboard characters and single spaces only.",
           "type": "integer",
           "minimum": 1,
           "maximum": 64,
@@ -92,7 +104,7 @@
           "maximum": 2048,
           "default": 1024
         },
-        "charlie_max_tokens": {
+        "judge_max_tokens": {
           "type": "integer",
           "minimum": 1,
           "maximum": 256,
@@ -113,7 +125,11 @@
         "concept_type": {
           "description": "list selects from data/concepts.json; specific uses specific_concept; random uses a seeded random FLAS vector.",
           "type": "string",
-          "enum": ["list", "specific", "random"],
+          "enum": [
+            "list",
+            "specific",
+            "random"
+          ],
           "default": "list"
         },
         "concept_index": {
@@ -147,7 +163,10 @@
         },
         "random_concept_normalize": {
           "type": "string",
-          "enum": ["unit_rms", "none"],
+          "enum": [
+            "unit_rms",
+            "none"
+          ],
           "default": "unit_rms"
         },
         "flas_flowtime": {
@@ -179,17 +198,45 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "additionalProperties": true,
-      "required": ["scores", "status", "timeout"],
+      "required": [
+        "scores",
+        "status",
+        "timeout"
+      ],
       "properties": {
         "scores": {
           "type": "array",
           "minItems": 2,
           "maxItems": 2,
-          "items": {"type": "number"}
+          "items": {
+            "type": "number"
+          }
         },
-        "status": {"type": "string", "enum": ["complete", "timeout"]},
-        "timeout": {"type": "boolean"},
-        "duration_seconds": {"type": "number"}
+        "status": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "timeout"
+          ]
+        },
+        "timeout": {
+          "type": "boolean"
+        },
+        "duration_seconds": {
+          "type": "number"
+        }
+      }
+    },
+    "runnable": {
+      "type": "game",
+      "image": "coworld-cue-n-woo:coworld-ab5c2625e4be",
+      "run": [
+        "python",
+        "-m",
+        "v2.coworld.game"
+      ],
+      "env": {
+        "WORKER_SIGNING_KEY_URI": "s3://observatory-private/cue-n-woo/tournament_signing_key"
       }
     },
     "protocols": {
@@ -203,13 +250,17 @@
       }
     },
     "docs": {
+      "readme": {
+        "type": "text",
+        "value": "# Cue-n-Woo\n\nA two-player theory-of-mind game. A hidden-style judge (a steered FLAS/Gemma model) answers questions in a secret persona. Each player privately interviews the judge, then writes challenge questions plus their own answers. Players also answer the opponent's challenge questions. The server scores how well each answer matches the judge's style, and the player who better predicts the judge wins.\n\n## Flow\n\n1. `private_questions`: each player asks the judge up to three private questions.\n2. `proposals`: each player submits three challenge questions, each with their own answer.\n3. `answers`: each player answers the opponent's three challenge questions. An empty answer is a permitted decline and scores 0; non-empty answers need at least three non-space characters.\n4. `reveal`: the hidden concept is revealed and the round is scored.\n\nThe hidden concept is server-private during play."
+      },
       "pages": [
         {
           "id": "rules.md",
           "title": "rules.md",
           "content": {
             "type": "text",
-            "value": "# Cue-n-Woo Rules\n\nTwo players independently ask a hidden-style Charlie up to three private questions. Each player then writes three challenge questions and hidden answers. Players answer the opponent's challenge questions without seeing the hidden answers. The server scores answer likelihoods using the local FLAS/Gemma worker. The hidden concept is server-private during play."
+            "value": "# Cue-n-Woo Rules\n\nTwo players independently ask a hidden-style judge up to three private questions. Each player then writes three challenge questions plus their own answers. Players also answer the opponent's challenge questions. The server scores answer likelihoods using the local FLAS/Gemma worker. The hidden concept is server-private during play."
           }
         },
         {
@@ -225,32 +276,47 @@
   },
   "player": [
     {
+      "type": "player",
+      "image": "coworld-cue-n-woo:coworld-ab5c2625e4be",
+      "run": [
+        "python",
+        "-m",
+        "v2.coworld.players.baseline"
+      ],
+      "env": {},
       "id": "baseline-player",
       "name": "Baseline Player",
-      "type": "player",
-      "image": "{{CUE_N_WOO_IMAGE}}",
-      "run": ["python", "v2/coworld/player.py"],
-      "description": "Simple deterministic Coworld player for certification."
+      "description": "Bedrock Claude LLM player harness; the model makes every decision via submit_action and retries validation errors."
     },
     {
-      "id": "claude-policy",
-      "name": "Claude Policy",
       "type": "player",
-      "image": "{{CUE_N_WOO_IMAGE}}",
-      "run": ["python", "v2/coworld/claude_policy.py"],
-      "description": "General Bedrock Claude policy harness that uses submit_action tool calls and retries validation errors."
+      "image": "coworld-cue-n-woo:coworld-ab5c2625e4be",
+      "run": [
+        "python",
+        "-m",
+        "v2.coworld.players.stub_players"
+      ],
+      "env": {},
+      "id": "stub-player",
+      "name": "Stub Player",
+      "description": "Deterministic offline stub for certification; asks/proposes precommitted text and always answers from a backup list, no LLM or AWS."
     },
     {
+      "type": "player",
+      "image": "coworld-cue-n-woo:coworld-ab5c2625e4be",
+      "run": [
+        "python",
+        "-m",
+        "v2.coworld.players.kyle"
+      ],
+      "env": {},
       "id": "kyle-policy",
       "name": "Kyle Policy",
-      "type": "player",
-      "image": "{{CUE_N_WOO_IMAGE}}",
-      "run": ["python", "v2/coworld/kyle_policy.py"],
-      "description": "Heuristic policy that uses Kyle's phase-specific prompt ideas from the harness."
+      "description": "Baseline LLM harness seeded with Kyle's optional per-phase question suggestions; the model may freely ignore them."
     }
   ],
-  "commissioner": [],
   "reporter": [],
+  "commissioner": [],
   "grader": [],
   "diagnoser": [],
   "optimizer": [],
@@ -258,9 +324,15 @@
     {
       "id": "default",
       "name": "Default",
-      "description": "Two-player default cue-n-woo game with a five-minute hard timer.",
       "game_config": {
-        "players": [{"name": "Alice"}, {"name": "Bob"}],
+        "players": [
+          {
+            "name": "Alice"
+          },
+          {
+            "name": "Bob"
+          }
+        ],
         "llm_worker_url": "https://cue-n-woo-worker.softmax-research.net",
         "require_signing": true,
         "round_timeout_seconds": 300,
@@ -269,18 +341,26 @@
         "max_question_tokens": 1024,
         "max_answer_tokens": 12,
         "max_prompt_tokens": 1024,
-        "charlie_max_tokens": 128,
+        "judge_max_tokens": 128,
         "temperature": 0.7,
         "concept_type": "list",
         "flas_flowtime": 2,
         "flas_steps": 3,
         "reveal_concept_to_clients": false
-      }
+      },
+      "description": "Two-player default cue-n-woo game with a five-minute hard timer."
     }
   ],
   "certification": {
     "game_config": {
-      "players": [{"name": "Alice"}, {"name": "Bob"}],
+      "players": [
+        {
+          "name": "Alice"
+        },
+        {
+          "name": "Bob"
+        }
+      ],
       "llm_worker_url": "https://cue-n-woo-worker.softmax-research.net",
       "stub_worker": true,
       "round_timeout_seconds": 300,
@@ -289,7 +369,7 @@
       "max_question_tokens": 1024,
       "max_answer_tokens": 12,
       "max_prompt_tokens": 1024,
-      "charlie_max_tokens": 128,
+      "judge_max_tokens": 128,
       "temperature": 0,
       "concept_type": "list",
       "concept_index": 0,
@@ -298,8 +378,12 @@
       "reveal_concept_to_clients": false
     },
     "players": [
-      {"player_id": "baseline-player"},
-      {"player_id": "baseline-player"}
+      {
+        "player_id": "stub-player"
+      },
+      {
+        "player_id": "stub-player"
+      }
     ]
   }
 }

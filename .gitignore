@@ -12,3 +12,8 @@ checkpoints/
 .cache/
 tournament_signing_key.secret
 *.secret
+
+# Game runtime artifacts (regenerated on each run).
+results.json
+replay.json
+replay.json.z

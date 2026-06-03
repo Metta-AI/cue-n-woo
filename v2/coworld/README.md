@@ -20,9 +20,9 @@ default round timer is 300 seconds.
 
 Policy debugging notes:
 
-- `docs/claude_policy_observation.md` documents the exact Bedrock Converse request and the state Claude sees.
-- Charlie responses are capped by `charlie_max_tokens`; the Claude policy prompt explicitly tells the model that prior
-  Charlie answers may be truncated at that output-token limit.
+- `docs/llm_player_observation.md` documents the exact Bedrock Converse request and the state the LLM player sees.
+- Judge responses are capped by `judge_max_tokens`; the Claude policy prompt explicitly tells the model that prior
+  judge answers may be truncated at that output-token limit.
 
 Scoring notes:
 
