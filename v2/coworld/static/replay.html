@@ -217,8 +217,8 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
       meter(d)+scoreboard();
     requestAnimationFrame(function(){
       var cA=document.getElementById('cardA'); if(cA) cA.classList.add('in');
+      var cB=document.getElementById('cardB'); if(cB) cB.classList.add('in');
       setTimeout(function(){
-        var cB=document.getElementById('cardB'); if(cB) cB.classList.add('in');
         judge(d);
       }, anim(420));
     });
