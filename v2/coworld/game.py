@@ -775,9 +775,14 @@ async def timer_loop() -> None:
         await broadcast()
 
 
+def should_start_timer() -> bool:
+    return not REPLAY_MODE
+
+
 @app.on_event("startup")
 async def startup() -> None:
-    asyncio.create_task(timer_loop())
+    if should_start_timer():
+        asyncio.create_task(timer_loop())
 
 
 PLAYER_HTML = """<!doctype html>
