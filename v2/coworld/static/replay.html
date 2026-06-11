@@ -25,6 +25,12 @@ body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background
 .concept{font-size:22px;font-weight:600;color:#d9c6ff}
 .prompt{font-size:21px;color:var(--muted);text-align:center;padding:18px;background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-top:20px;line-height:1.5}
 .prompt b{color:var(--ink);font-weight:600}
+.qa{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px;margin-top:20px}
+.qahead{display:flex;align-items:center;gap:12px;font-size:21px;font-weight:600;margin-bottom:18px}
+.qa .label{font-size:15px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:6px}
+.qtext,.rtext{font-size:24px;line-height:1.5}
+.rtext{color:var(--ink)}
+.qtext{color:var(--muted);margin-bottom:22px}
 .cards{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:20px}
 @media(max-width:640px){.cards{grid-template-columns:1fr}}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px;opacity:0;transform:translateY(8px);transition:opacity .4s,transform .4s,border-color .3s}
@@ -104,8 +110,21 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
     // generic slot labels only if the config omits them.
     var cfg=replay.config_public||{}, players=(cfg.players||[]);
     var nameA=(players[0]&&players[0].name)||'Player 1', nameB=(players[1]&&players[1].name)||'Player 2';
-    var results=replay.results||{}, rows=results.rows||[];
+    var results=replay.results||{}, rows=results.rows||[], replayPlayers=replay.players||[];
     var concept=conceptText(replay.hidden_concept||results.hidden_concept);
+    var prompts=[];
+    [0,1].forEach(function(slot){
+      var turns=((replayPlayers[slot]||{}).judge||[]);
+      turns.forEach(function(turn,i){
+        prompts.push({
+          side: slot===0?'A':'B',
+          name: slot===0?nameA:nameB,
+          index: i+1,
+          question: turn.question,
+          answer: turn.answer
+        });
+      });
+    });
     var duels=rows.map(function(r){
       var authorIsA = r.submitter===0;
       // "secret" side is the question's author; "opponent" is the other player.
@@ -133,22 +152,28 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
         duplicate: !!r.duplicate_conflict
       };
     });
-    return {nameA:nameA,nameB:nameB,concept:concept,duels:duels,scores:results.scores||[0,0],status:results.status,timeout:results.timeout};
+    return {nameA:nameA,nameB:nameB,concept:concept,prompts:prompts,duels:duels,scores:results.scores||[0,0],status:results.status,timeout:results.timeout};
   }
 
   var show=null, idx=0, playing=false, speed=1, timer=null;
-  // steps: 0 = intro/judge, 1..N = duels, N+1 = final
-  function totalSteps(){ return show ? show.duels.length+2 : 0; }
+  // steps: 0 = intro/judge, private prompts, challenge duels, final
+  function totalSteps(){ return show ? show.prompts.length+show.duels.length+2 : 0; }
+  function promptCount(){ return show ? show.prompts.length : 0; }
+  function firstDuelStep(){ return promptCount()+1; }
+  function lastDuelStep(){ return promptCount()+show.duels.length; }
+  function currentDuelNumber(){ return idx-firstDuelStep()+1; }
   // Base playback runs at 1/2.5 of the original pace; the speed buttons scale relative to that.
   function anim(ms){ return ms*2.5/speed; }
+  function hold(ms){ return ms/speed; }
 
   function render(){
     if(!show) return;
-    roundlbl.textContent = (idx>=1 && idx<=show.duels.length) ? ('round '+idx+' of '+show.duels.length) : '';
+    roundlbl.textContent = (idx>=firstDuelStep() && idx<=lastDuelStep()) ? ('round '+currentDuelNumber()+' of '+show.duels.length) : '';
     progfill.style.width = (totalSteps()<=1?0:(idx/(totalSteps()-1))*100)+'%';
     btnPrev.disabled = idx<=0; btnNext.disabled = idx>=totalSteps()-1;
     if(idx===0) renderIntro();
-    else if(idx<=show.duels.length) renderDuel(show.duels[idx-1]);
+    else if(idx<=promptCount()) renderPrompt(show.prompts[idx-1]);
+    else if(idx<=lastDuelStep()) renderDuel(show.duels[currentDuelNumber()-1]);
     else renderFinal();
   }
 
@@ -165,15 +190,29 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
     hint.textContent='Each round, two contestants answer — the judge picks the answer that best fits its secret style.';
     stage.innerHTML =
       judgeCard()+
-      '<div class="prompt">A theory-of-mind duel: <b>'+esc(show.nameA)+'</b> vs <b>'+esc(show.nameB)+'</b> &mdash; '+show.duels.length+' rounds. Press <b>Play</b> or <b>Next</b>.</div>';
+      '<div class="prompt">A theory-of-mind duel: <b>'+esc(show.nameA)+'</b> vs <b>'+esc(show.nameB)+'</b> &mdash; '+show.duels.length+' challenge rounds after private judge interviews.</div>';
+  }
+
+  function renderPrompt(p){
+    hint.textContent='Private interview: each player asked the judge three questions before writing challenge prompts.';
+    stage.innerHTML =
+      judgeCard()+
+      '<div class="qa">'+
+        '<div class="qahead"><div class="dot dot'+p.side+'">'+esc(p.name.charAt(0).toUpperCase())+'</div>'+
+          esc(p.name)+' <span class="sub">private prompt '+p.index+'</span></div>'+
+        '<div class="label">Prompt</div><div class="qtext">&ldquo;'+esc(p.question)+'&rdquo;</div>'+
+        '<div class="label">Judge response</div><div class="rtext">&ldquo;'+esc(p.answer)+'&rdquo;</div>'+
+      '</div>';
+    if(playing) scheduleNext(hold(2000));
   }
 
   function renderDuel(d){
     var authorName = d.author==='A'?show.nameA:show.nameB;
+    var roundNumber=currentDuelNumber();
     hint.textContent = 'Whoever wrote the question wins points when the judge prefers their answer over the opponent’s.';
     stage.innerHTML =
       judgeCard()+
-      '<div class="prompt">Round '+idx+' &middot; question by <b>'+esc(authorName)+'</b><br><b>'+esc(d.question)+'</b></div>'+
+      '<div class="prompt">Round '+roundNumber+' &middot; question by <b>'+esc(authorName)+'</b><br><b>'+esc(d.question)+'</b></div>'+
       '<div class="cards">'+card('A',show.nameA,d.ansA)+card('B',show.nameB,d.ansB)+'</div>'+
       meter(d)+scoreboard();
     requestAnimationFrame(function(){
@@ -216,7 +255,7 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
   // (duels[0..idx-2]). The current round's points are added live in reveal(), so
   // they must NOT be in this baseline or they would be counted twice.
   function runningScore(side){
-    var s=0, last=Math.min(idx-1, show.duels.length);
+    var s=0, last=Math.max(0, Math.min(currentDuelNumber()-1, show.duels.length));
     for(var i=0;i<last;i++){ s += (side==='A'?show.duels[i].ptsA:show.duels[i].ptsB)||0; } return s;
   }
   function fmt(n){ return (Math.round((n||0)*10)/10).toString(); }
@@ -328,10 +367,12 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
   function scheduleNext(ms){ clearTimeout(timer); timer=setTimeout(function(){ if(playing) step(1); }, ms); }
   function step(dir){
     clearJudge(); clearTimeout(timer);
-    idx=Math.max(0,Math.min(totalSteps()-1, idx+dir));
+    var next=idx+dir;
+    if(playing && next>=totalSteps()) next=0;
+    idx=Math.max(0,Math.min(totalSteps()-1, next));
     render();
     if(playing && idx===0) scheduleNext(anim(2600));
-    if(idx>=totalSteps()-1){ playing=false; btnPlay.innerHTML='&#9654; Play'; }
+    else if(playing && idx>=totalSteps()-1) scheduleNext(anim(2600));
   }
   btnNext.onclick=function(){ playing=false; btnPlay.innerHTML='&#9654; Play'; step(1); };
   btnPrev.onclick=function(){ playing=false; btnPlay.innerHTML='&#9654; Play'; step(-1); };
