@@ -163,7 +163,7 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
   function lastDuelStep(){ return promptCount()+show.duels.length; }
   function currentDuelNumber(){ return idx-firstDuelStep()+1; }
   // Base playback runs at 1/2.5 of the original pace; the speed buttons scale relative to that.
-  function anim(ms){ return ms/speed; }
+  function anim(ms){ return ms*2.5/speed; }
   function hold(ms){ return ms/speed; }
 
   function render(){
@@ -220,7 +220,7 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
       var cB=document.getElementById('cardB'); if(cB) cB.classList.add('in');
       judgeTimers.push(setTimeout(function(){
         judge(d);
-      }, anim(250)));
+      }, anim(420)));
     });
   }
   function card(side,name,ans){
@@ -295,18 +295,18 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
     }
     var tot=(d.probA||0)+(d.probB||0);
     var targetA = tot>0 ? (d.probA/tot)*100 : 50;
-    var t=0, jit=setInterval(function(){ t++; setBar(50+Math.sin(t/2)*16+(Math.random()*8-4)); }, anim(90));
+    var t=0, jit=setInterval(function(){ t++; setBar(50+Math.sin(t/2)*16+(Math.random()*8-4)); }, anim(140));
     judgeTimers.push(jit);
     judgeTimers.push(setTimeout(function(){
       clearInterval(jit);
       var barA=document.getElementById('barA'); var cur=barA?parseFloat(barA.style.width)||50:50;
       var st=setInterval(function(){
-        cur+=(targetA-cur)*0.28;
+        cur+=(targetA-cur)*0.18;
         if(Math.abs(targetA-cur)<0.4){ cur=targetA; clearInterval(st); reveal(d,targetA); }
         setBar(cur);
-      }, anim(35));
+      }, anim(55));
       judgeTimers.push(st);
-    }, anim(d.duplicate?120:320)));
+    }, anim(d.duplicate?300:800)));
   }
   // Spell out how a side's round points are built: probability base, then either
   // the +10 "beat the opponent" bonus or the -10 duplicate-answer penalty. A side
@@ -348,7 +348,7 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
     var sA=document.getElementById('sA'), sB=document.getElementById('sB');
     if(sA) sA.textContent=fmt(runningScore('A')+(d.ptsA||0));
     if(sB) sB.textContent=fmt(runningScore('B')+(d.ptsB||0));
-    if(playing) scheduleNext(hold(900));
+    if(playing) scheduleNext(anim(1600));
   }
 
   function renderFinal(){
@@ -371,8 +371,8 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
     if(playing && next>=totalSteps()) next=0;
     idx=Math.max(0,Math.min(totalSteps()-1, next));
     render();
-    if(playing && idx===0) scheduleNext(hold(1800));
-    else if(playing && idx>=totalSteps()-1) scheduleNext(hold(1800));
+    if(playing && idx===0) scheduleNext(anim(2600));
+    else if(playing && idx>=totalSteps()-1) scheduleNext(anim(2600));
   }
   btnNext.onclick=function(){ playing=false; btnPlay.innerHTML='&#9654; Play'; step(1); };
   btnPrev.onclick=function(){ playing=false; btnPlay.innerHTML='&#9654; Play'; step(-1); };
@@ -380,7 +380,7 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
     playing=true; btnPlay.innerHTML='&#10073;&#10073; Pause';
     if(idx>=totalSteps()-1) idx=0;
     render();
-    if(idx===0) scheduleNext(hold(1800));
+    if(idx===0) scheduleNext(anim(2400));
   }
   btnPlay.onclick=function(){
     if(playing){ playing=false; btnPlay.innerHTML='&#9654; Play'; clearJudge(); clearTimeout(timer); }
