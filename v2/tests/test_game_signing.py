@@ -67,3 +67,13 @@ def test_uri_key_loads_when_readable(monkeypatch: pytest.MonkeyPatch) -> None:
     seed = seed_b64()
     monkeypatch.setattr(game, "read_data", lambda uri: seed.encode("utf-8"))
     assert game.load_signing_key() is not None
+
+
+def test_live_mode_starts_timer(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(game, "REPLAY_MODE", False)
+    assert game.should_start_timer() is True
+
+
+def test_replay_mode_does_not_start_timer(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(game, "REPLAY_MODE", True)
+    assert game.should_start_timer() is False
