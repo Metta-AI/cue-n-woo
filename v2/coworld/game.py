@@ -102,30 +102,32 @@ CONCEPTS = load_concept_list(CONFIG.get("concept_list_path"))
 def load_signing_key(require: bool = False) -> Any | None:
     """Private key used to claim tournament priority on the worker, or None.
 
-    Hosted episodes fetch the key from a private object that only the game pod's
-    AWS identity can read; local runs may set WORKER_SIGNING_KEY directly. When
-    no key is available the game still works: its worker requests go unsigned and
-    are served at normal priority. Unsigned is the expected mode for any local
-    user, since they cannot read the private key.
+    Hosted episodes receive a short-lived URL resolved by the Coworld backend
+    from the manifest's symbolic secret URI; local runs may set
+    WORKER_SIGNING_KEY directly. When no key is available the game still works:
+    its worker requests go unsigned and are served at normal priority. Unsigned
+    is the expected mode for any local user, since they cannot read the private
+    key.
 
     When ``require`` is true (config ``require_signing``), the inability to sign
     is a hard error instead of a silent downgrade. Tournaments set this so a
     broken key fetch fails loudly rather than quietly forfeiting priority and
     competing with public traffic.
 
-    Runtime coupling (verified against metta-ai/metta): the hosted game container
-    runs under the `episode-runner` k8s service account, whose IAM role
-    `orchestrator-eval-worker` has s3:GetObject on `observatory-private`. If infra
-    changes that service account or bucket policy, this fetch breaks.
+    Runtime coupling (verified against metta-ai/metta): hosted episode dispatch
+    resolves secret://coworld/cue_n_woo/tournament_signing_key into a presigned
+    HTTPS URL before starting the game container. Hosted play, replay, downloaded
+    images, and local runs keep the symbolic URI and degrade to unsigned unless
+    the key is overridden locally.
     """
     inline = os.environ.get("WORKER_SIGNING_KEY")
     if inline:
         return signing.load_private_key(inline)
     key_uri = os.environ.get("WORKER_SIGNING_KEY_URI")
     if key_uri:
-        # The published manifest sets this URI for every run, but only the hosted
-        # game pod can actually read the private object. A local user has the URI
-        # without S3 access; degrade to unsigned unless signing is required.
+        # The published manifest sets a symbolic Coworld secret URI for every
+        # run. Hosted episodes receive a presigned URL; local users keep the
+        # symbolic URI and degrade to unsigned unless signing is required.
         try:
             seed_b64 = read_data(key_uri).decode("utf-8").strip()
         except Exception as exc:
