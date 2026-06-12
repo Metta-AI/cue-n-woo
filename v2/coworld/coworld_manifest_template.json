@@ -13,7 +13,7 @@
         "v2.coworld.game"
       ],
       "env": {
-        "WORKER_SIGNING_KEY_URI": "s3://observatory-private/cue-n-woo/tournament_signing_key"
+        "WORKER_SIGNING_KEY_URI": "secret://coworld/cue_n_woo/tournament_signing_key"
       }
     },
     "config_schema": {

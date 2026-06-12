@@ -42,9 +42,10 @@ priority — it is never rejected.
 `game.py` resolves the private key, in order:
 
 1. `WORKER_SIGNING_KEY` — base64 raw seed, inline (local/dev).
-2. `WORKER_SIGNING_KEY_URI` — any `read_data` URI, including
-   `s3://observatory-private/...`, read with the game pod's ambient AWS
-   identity (hosted).
+2. `WORKER_SIGNING_KEY_URI` — any `read_data` URI. In hosted tournament
+   episodes, the Coworld backend resolves the manifest's symbolic
+   `secret://coworld/cue_n_woo/tournament_signing_key` reference into a
+   short-lived HTTPS URL before the game starts.
 3. None — the game runs unsigned (normal priority).
 
 Set the `require_signing` config flag (true on the tournament variant) to turn an
@@ -54,13 +55,12 @@ traffic. Local/certification runs leave it false and degrade to unsigned.
 
 ### Hosted runtime coupling
 
-The hosted game container runs under the `episode-runner` Kubernetes service
-account, whose IAM role `orchestrator-eval-worker` has `s3:GetObject` on
-`observatory-private`. The private key lives at
-`s3://observatory-private/cue-n-woo/tournament_signing_key`; set
-`WORKER_SIGNING_KEY_URI` to that value in the hosted game config. If infra
-changes the game pod's service account or the bucket policy, the fetch fails and
-the game falls back to running unsigned.
+The hosted episode dispatcher resolves
+`secret://coworld/cue_n_woo/tournament_signing_key` only for the matching
+Coworld and injects a short-lived presigned HTTPS URL into
+`WORKER_SIGNING_KEY_URI`. Hosted play, replay, downloaded images, and local runs
+keep the symbolic URI; without a local override they cannot read the private key
+and fall back to unsigned mode.
 
 ## Exposing the worker without tailscale
 
@@ -73,7 +73,8 @@ public HTTPS endpoint. The bearer-free signature plus TLS is the trust boundary.
 1. Generate a new keypair.
 2. Update the public key (commit `DEFAULT_PUBLIC_KEY_B64` or set
    `WORKER_SIGNING_PUBLIC_KEY`) and restart the worker.
-3. Replace the private object the game reads.
+3. Replace the Coworld secret value:
+   `uv run coworld secret put cue_n_woo tournament_signing_key ./tournament_signing_key.secret`
 
 There is no overlap window: rotate the worker public key and the game private
 key together. During a brief mismatch, tournament requests degrade to normal
