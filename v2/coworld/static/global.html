@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cue n Woo - Global</title>
+<style>
+:root{
+  --bg:#0e1116;--panel:#171b22;--card:#1d222b;--line:#2a313c;--line2:#3a434f;
+  --ink:#e8ecf1;--muted:#9aa6b2;--dim:#6b7785;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  --a:#54b9ff;--a-bg:#13344d;--b:#ffb454;--b-bg:#4a3411;--good:#46d27f;--bad:#ff6b6b;--warn:#ffce54;
+}
+*{box-sizing:border-box}
+body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg);color:var(--ink);font-size:18px}
+.wrap{max-width:1320px;width:92vw;margin:0 auto;padding:28px 22px 48px}
+.top{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:22px}
+.title{font-size:34px;font-weight:650;line-height:1.1}
+.sub{color:var(--muted);font-size:17px;margin-top:8px}
+.status{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;white-space:nowrap}
+.pip{width:10px;height:10px;border-radius:50%;background:var(--good);display:inline-block}
+.pip.done{background:var(--warn)}
+.grid{display:grid;grid-template-columns:1.15fr .85fr;gap:18px}
+@media(max-width:860px){.top{display:block}.status{display:inline-flex;margin-top:16px}.grid{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px}
+.panel h2{font-size:16px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);font-weight:650;margin:0 0 14px}
+.phase{font-size:28px;font-weight:650;margin:0 0 12px}
+.meter{height:12px;background:var(--line);border-radius:999px;overflow:hidden;margin-top:16px}
+.fill{height:100%;background:linear-gradient(90deg,var(--a),var(--b));width:0;transition:width .35s}
+.players{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px}
+@media(max-width:640px){.players{grid-template-columns:1fr}}
+.player{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.phead{display:flex;align-items:center;gap:12px;font-weight:650;font-size:20px;margin-bottom:12px}
+.dot{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:650}
+.dotA{background:var(--a-bg);color:var(--a)}.dotB{background:var(--b-bg);color:var(--b)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+.stat{background:rgba(255,255,255,.025);border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center}
+.num{font-family:var(--mono);font-size:24px;color:var(--ink)}
+.lbl{font-size:13px;color:var(--dim);margin-top:2px}
+.questions{display:grid;gap:10px}
+.q{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px 14px;color:var(--muted);line-height:1.45}
+.q b{color:var(--ink);font-weight:650}
+.empty{color:var(--dim);font-size:17px;padding:16px;border:1px dashed var(--line2);border-radius:10px}
+.score{display:flex;justify-content:center;gap:28px;font-size:24px;margin:18px 0 4px}
+.score b{font-family:var(--mono);font-weight:650}.sa{color:var(--a)}.sb{color:var(--b)}
+.rows{display:grid;gap:12px;margin-top:16px}
+.row{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.rowq{font-size:18px;line-height:1.45;margin-bottom:10px}
+.bar{height:18px;border-radius:8px;overflow:hidden;background:var(--line);display:flex;margin:8px 0}
+.barA{background:var(--a)}.barB{background:var(--b);flex:1}
+.rowmeta{display:flex;justify-content:space-between;color:var(--dim);font-size:14px;font-family:var(--mono)}
+a.raw{color:var(--dim);font-size:15px;text-decoration:none}
+.err{color:var(--bad);padding:18px;border:1px solid var(--bad);border-radius:10px;background:rgba(255,107,107,.08)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <div class="title">Cue n Woo</div>
+      <div class="sub">Global spectator view</div>
+    </div>
+    <div>
+      <div class="status"><span class="pip" id="pip"></span><span id="status">connecting</span></div>
+      <div style="text-align:right;margin-top:8px"><a class="raw" href="/client/global/raw">raw json</a></div>
+    </div>
+  </div>
+  <div id="app"></div>
+</div>
+<script>
+(function(){
+  var app=document.getElementById('app'), status=document.getElementById('status'), pip=document.getElementById('pip');
+  function esc(s){var d=document.createElement('div');d.textContent=(s==null?'':String(s));return d.innerHTML;}
+  function pct(n,d){return d?Math.max(0,Math.min(100,Math.round(100*n/d))):0;}
+  function fmt(n){return (Math.round((Number(n)||0)*10)/10).toFixed(1);}
+  function phaseLabel(s){
+    return {
+      private_questions:'Private questions',
+      proposals:'Challenge writing',
+      answers:'Answering',
+      ready_to_score:'Scoring',
+      reveal:'Reveal'
+    }[s] || String(s||'Waiting');
+  }
+  function progress(state){
+    var counts=state.counts||[], limits=state.limits||{};
+    var priv=3, chal=3;
+    var total=counts.length*(priv+chal+chal);
+    var done=0;
+    counts.forEach(function(c){
+      done+=Math.min(priv,c.chats||0)+Math.min(chal,c.proposals||0)+Math.min(chal,c.answers||0);
+    });
+    return pct(done,total);
+  }
+  function playerCard(c,idx){
+    c=c||{};
+    var dot=idx===0?'dotA':'dotB', name=idx===0?'Alice':'Bob';
+    return '<div class="player"><div class="phead"><span class="dot '+dot+'">'+(idx+1)+'</span>'+name+'</div>'+
+      '<div class="stats">'+
+      stat(c.chats||0,'chats')+stat(c.proposals||0,'challenges')+stat(c.answers||0,'answers')+
+      '</div></div>';
+  }
+  function stat(n,label){return '<div class="stat"><div class="num">'+esc(n)+'</div><div class="lbl">'+label+'</div></div>';}
+  function questions(state){
+    var groups=state.public_questions||[];
+    var html='';
+    groups.forEach(function(list,slot){
+      (list||[]).forEach(function(q,i){
+        html+='<div class="q"><b>P'+(slot+1)+' Q'+(i+1)+'.</b> '+esc(q.question)+'</div>';
+      });
+    });
+    return html || '<div class="empty">Challenge questions will appear here once players submit them.</div>';
+  }
+  function resultRows(results){
+    var rows=(results&&results.rows)||[];
+    if(!rows.length) return '';
+    return '<div class="rows">'+rows.map(function(r,i){
+      var a=Number(r.secret_score_points)||0, b=Number(r.opponent_score_points)||0;
+      var total=Math.max(1,a+b), aw=pct(a,total);
+      return '<div class="row"><div class="rowq">'+esc(r.question||('Question '+(i+1)))+'</div>'+
+        '<div class="bar"><div class="barA" style="width:'+aw+'%"></div><div class="barB"></div></div>'+
+        '<div class="rowmeta"><span>P'+((r.owner||0)+1)+' '+fmt(a)+'</span><span>P'+((r.opponent||0)+1)+' '+fmt(b)+'</span></div></div>';
+    }).join('')+'</div>';
+  }
+  function render(state){
+    status.textContent=state.done?'finished':('live - '+(state.remaining_seconds||0)+'s');
+    pip.className='pip'+(state.done?' done':'');
+    var results=state.results||null, scores=(results&&results.scores)||[0,0];
+    var prog=progress(state);
+    app.innerHTML=
+      '<div class="grid"><section class="panel"><h2>Round</h2><div class="phase">'+phaseLabel(state.phase)+'</div>'+
+      '<div class="sub">'+(state.done?'Round complete':'Waiting on player actions')+'</div>'+
+      '<div class="meter"><div class="fill" style="width:'+prog+'%"></div></div>'+
+      '<div class="players">'+playerCard((state.counts||[])[0],0)+playerCard((state.counts||[])[1],1)+'</div></section>'+
+      '<section class="panel"><h2>Score</h2><div class="score"><span class="sa">Alice <b>'+fmt(scores[0])+'</b></span><span class="sb">Bob <b>'+fmt(scores[1])+'</b></span></div>'+
+      (results&&results.timeout?'<div class="sub" style="text-align:center;color:var(--warn)">ended on the clock</div>':'<div class="sub" style="text-align:center">scores update after judging</div>')+
+      resultRows(results)+'</section></div>'+
+      '<section class="panel" style="margin-top:18px"><h2>Challenge questions</h2><div class="questions">'+questions(state)+'</div></section>';
+  }
+  var ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/global');
+  ws.onmessage=function(e){render(JSON.parse(e.data));};
+  ws.onerror=function(){app.innerHTML='<div class="err">Could not connect to the global stream.</div>';status.textContent='disconnected';};
+})();
+</script>
+</body>
+</html>

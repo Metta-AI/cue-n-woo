@@ -77,3 +77,20 @@ def test_live_mode_starts_timer(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_replay_mode_does_not_start_timer(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(game, "REPLAY_MODE", True)
     assert game.should_start_timer() is False
+
+
+def test_global_client_serves_pretty_spectator_page() -> None:
+    body = game.global_client().body.decode("utf-8")
+
+    assert "Global spectator view" in body
+    assert "raw json" in body
+    assert "<pre id=\"out\">" not in body
+
+
+def test_raw_clients_serve_json_debug_page() -> None:
+    global_body = game.global_client_raw().body.decode("utf-8")
+    replay_body = game.replay_client_raw().body.decode("utf-8")
+
+    assert "<pre id=\"out\">" in global_body
+    assert "<pre id=\"out\">" in replay_body
+    assert "let endpoint=location.pathname.includes('/replay/')?'/replay':'/global';" in global_body

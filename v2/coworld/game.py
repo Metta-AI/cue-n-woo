@@ -350,7 +350,12 @@ def player_client() -> HTMLResponse:
 
 @app.get("/client/global")
 def global_client() -> HTMLResponse:
-    return HTMLResponse(GLOBAL_HTML)
+    return HTMLResponse((ROOT / "static" / "global.html").read_text())
+
+
+@app.get("/client/global/raw")
+def global_client_raw() -> HTMLResponse:
+    return HTMLResponse(RAW_CLIENT_HTML)
 
 
 @app.get("/client/replay")
@@ -360,7 +365,7 @@ def replay_client() -> HTMLResponse:
 
 @app.get("/client/replay/raw")
 def replay_client_raw() -> HTMLResponse:
-    return HTMLResponse(GLOBAL_HTML)
+    return HTMLResponse(RAW_CLIENT_HTML)
 
 
 @app.websocket("/player")
@@ -821,12 +826,14 @@ function sendAnswers(){send({type:'answer',answers:[0,1,2].map(i=>$('aa'+i).valu
 </script></body></html>"""
 
 
-GLOBAL_HTML = """<!doctype html>
+RAW_CLIENT_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cue-n-Woo Viewer</title><style>body{font-family:system-ui,sans-serif;margin:20px}pre{white-space:pre-wrap}</style></head>
-<body><h1>Cue-n-Woo Viewer</h1><pre id="out"></pre><script>
-let ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/global`);
+<title>Cue-n-Woo Raw</title><style>body{font-family:system-ui,sans-serif;margin:20px}pre{white-space:pre-wrap}</style></head>
+<body><h1>Cue-n-Woo Raw</h1><pre id="out"></pre><script>
+let endpoint=location.pathname.includes('/replay/')?'/replay':'/global';
+let ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}${endpoint}`);
 ws.onmessage=e=>document.getElementById('out').textContent=JSON.stringify(JSON.parse(e.data),null,2);
+ws.onerror=()=>document.getElementById('out').textContent='Could not connect to '+endpoint;
 </script></body></html>"""
 
 
