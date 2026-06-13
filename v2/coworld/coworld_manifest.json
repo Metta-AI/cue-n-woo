@@ -315,11 +315,29 @@
       "description": "Baseline LLM harness seeded with Kyle's optional per-phase question suggestions; the model may freely ignore them."
     }
   ],
-  "reporter": [],
+  "reporter": [
+    {
+      "id": "softmax-default-reporter",
+      "name": "Softmax Default Reporter",
+      "type": "reporter",
+      "description": "Softmax-published default reporter: writes a one-paragraph Markdown summary derived from results.json scores.",
+      "source_url": "https://github.com/Metta-AI/reporters/tree/main/reporters/default",
+      "image": "coworld-default-reporter:latest"
+    }
+  ],
   "commissioner": [],
   "grader": [],
   "diagnoser": [],
-  "optimizer": [],
+  "optimizer": [
+    {
+      "id": "coworld-optimizer",
+      "name": "Coworld Optimizer",
+      "type": "optimizer",
+      "description": "Game-agnostic optimizer that consumes the Coworld manifest, replay/results artifacts, reporter outputs, grader scores, and diagnoser outputs to drive local policy improvement.",
+      "source_url": "https://github.com/Metta-AI/optimizers",
+      "image": "coworld-optimizer:latest"
+    }
+  ],
   "variants": [
     {
       "id": "default",
