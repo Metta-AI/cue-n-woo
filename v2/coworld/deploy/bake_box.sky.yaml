@@ -1,0 +1,57 @@
+# One-off box used to BAKE the minimal worker AMI on a small (40GB) root.
+#
+# Why a fresh bake instead of snapshotting the DLAMI box: the AWS Deep Learning
+# AMI ships ~41GB of system CUDA toolkits (/usr/local/cuda-12.6/12.8/12.9/13.0)
+# that we do NOT need -- our venv's torch bundles its own CUDA and only needs the
+# NVIDIA driver. Building on plain Ubuntu + driver + venv + weights yields ~35GB
+# used, so a 40GB root is the minimal reasonable size (25GB is too tight once the
+# driver + venv + ~18.5GB weights + headroom are counted). No swap: 32GB RAM is
+# plenty and the model loads straight to VRAM.
+#
+# Usage:
+#   AWS_PROFILE=softmax SKYPILOT_SKIP_INSTANCE_PROFILE=1 \
+#     uv run sky launch -c cue-bake v2/coworld/deploy/bake_box.sky.yaml
+# Then bake the AMI from it (see bake_ami.md) and point the service specs at it.
+
+resources:
+  cloud: aws
+  region: us-east-1
+  accelerators: L40S:1          # bake on the same GPU family we serve on
+  image_id: ami-0d7405d05f836d0d4   # plain Ubuntu 22.04 (Canonical), 8GB base root
+  disk_size: 40                 # minimal: ~35GB used after install + headroom
+  ports:
+    - 7870
+
+workdir: .
+
+setup: |
+  set -euo pipefail
+  export DEBIAN_FRONTEND=noninteractive
+  # NVIDIA driver only (NOT the CUDA toolkit -- torch bundles its own CUDA libs).
+  sudo apt-get update -qq
+  sudo apt-get install -y -qq nvidia-driver-580-server rsync curl
+  # uv + the project venv (torch w/ bundled cu13, flas, transformers, etc.)
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$PATH"
+  mkdir -p /home/ubuntu/cue-n-woo
+  rsync -a --exclude '.venv' --exclude '.git' --exclude 'checkpoints' ~/sky_workdir/ /home/ubuntu/cue-n-woo/
+  cd /home/ubuntu/cue-n-woo
+  uv venv .venv --python 3.11
+  uv pip install -e .
+  # FLAS checkpoint + pre-download base Gemma weights into the HF cache so a baked
+  # replica loads from local disk (no network) at boot.
+  mkdir -p checkpoints/flas-gemma-2-9b-it
+  .venv/bin/python - <<'PY'
+  from huggingface_hub import snapshot_download
+  snapshot_download(repo_id="flas-ai/flas-gemma-2-9b-it", local_dir="checkpoints/flas-gemma-2-9b-it")
+  snapshot_download(repo_id="unsloth/gemma-2-9b-it")
+  PY
+  # Trim caches that bloat the image but aren't needed to serve.
+  uv cache clean 2>/dev/null || true
+  sudo apt-get clean
+  echo "bake setup complete; df:"; df -h /
+
+run: |
+  echo "Bake box ready. To produce the AMI (after a successful model load test):"
+  echo "  AWS_PROFILE=softmax aws ec2 create-image --instance-id <this> --no-reboot ..."
+  sleep infinity

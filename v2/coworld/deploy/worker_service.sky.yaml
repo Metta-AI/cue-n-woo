@@ -1,0 +1,78 @@
+# SkyServe service: autoscaling fleet of cue-n-woo FLAS/Gemma workers.
+#
+# A pool of single-L40S (g6e.xlarge) replicas behind one SkyServe load balancer.
+# SkyServe spins replicas up as request load rises and tears them down as it
+# falls, and routes requests across them. The game points its `llm_worker_url`
+# at the service endpoint and is otherwise unchanged.
+#
+# Launch / manage (run under an AWS profile that can DescribeImages + launch,
+# e.g. AWS_PROFILE=softmax):
+#   uv run sky serve up -n cue-n-woo-workers v2/coworld/deploy/worker_service.sky.yaml
+#   uv run sky serve status cue-n-woo-workers      # replicas + endpoint
+#   uv run sky serve down cue-n-woo-workers        # tear the whole fleet down
+#
+# The printed endpoint (http://<lb-ip>:7870) is what the game's llm_worker_url
+# should point at (or front it with the existing public DNS / ingress).
+#
+# Per-L40S is the most price-efficient unit ($1.86/GPU-hr); multi-GPU boxes bundle
+# unused CPU/RAM at a higher per-GPU price, so we scale in single-GPU replicas.
+
+service:
+  # /health returns 200 only once the model is loaded (see run: below), so a
+  # replica joins the load balancer only when it is actually warm and ready.
+  readiness_probe:
+    path: /health
+    # Model load (incl. first-time weight download) can take a few minutes.
+    initial_delay_seconds: 1200
+  replica_policy:
+    min_replicas: 1            # one always-warm replica: no cold start for first traffic
+    max_replicas: 3            # VALIDATION cap; raise toward ~128 for the event
+    # Calibrated from measured load: a game issues ~18 worker requests; an L40S
+    # replica saturates near ~8 concurrent games (~1.6 req/s), so 80% load ~= 1.3
+    # req/s. Above this SkyServe adds replicas; sustained below, it removes them.
+    target_qps_per_replica: 1.3
+    # Keep warm spare replicas ahead of demand so a surge hits already-booted GPUs
+    # instead of waiting on a multi-minute cold start. (Clipped to max_replicas,
+    # so during validation fewer spares appear; full effect once max is raised.)
+    num_overprovision: 8
+    upscale_delay_seconds: 120     # add capacity fairly promptly when load climbs
+    downscale_delay_seconds: 900   # scale in slowly so brief lulls don't thrash
+
+resources:
+  cloud: aws
+  region: us-east-1
+  accelerators: L40S:1        # g6e.xlarge — most price-efficient per-GPU
+  disk_size: 200
+  ports:
+    - 7870
+
+workdir: .
+
+setup: |
+  set -euo pipefail
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$PATH"
+  uv venv .venv --python 3.11
+  uv pip install -e .
+  mkdir -p checkpoints/flas-gemma-2-9b-it
+  .venv/bin/python - <<'PY'
+  from huggingface_hub import snapshot_download
+  snapshot_download(repo_id="flas-ai/flas-gemma-2-9b-it", local_dir="checkpoints/flas-gemma-2-9b-it")
+  PY
+
+run: |
+  set -euo pipefail
+  export PATH="$HOME/.local/bin:$PATH"
+  export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
+  # Start the worker, then force a model load so /health flips to ready only when
+  # the replica is warm. The load runs in the background and the server keeps
+  # running in the foreground (so the replica stays up).
+  .venv/bin/python v2/llm_worker.py --host 0.0.0.0 --port 7870 &
+  WORKER_PID=$!
+  # Wait for the HTTP server, then trigger the (idempotent) model load.
+  for i in $(seq 1 60); do
+    if curl -sf -m5 localhost:7870/health >/dev/null 2>&1; then break; fi
+    sleep 2
+  done
+  curl -s -m1200 -X POST localhost:7870/load -H 'Content-Type: application/json' -d '{}' || true
+  wait $WORKER_PID

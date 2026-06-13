@@ -1,0 +1,48 @@
+# SkyPilot task for the cue-n-woo FLAS/Gemma worker on a single L40S (g6e.xlarge).
+#
+# This provisions the new candidate worker box and sets it up end to end:
+#   uv run sky launch -c cue-worker-l40s v2/coworld/deploy/worker.sky.yaml
+#
+# After setup the worker serves on port 7870. Reach it with:
+#   uv run sky exec cue-worker-l40s -- curl -s localhost:7870/health
+#   ssh cue-worker-l40s        # interactive / tmux
+#
+# Tear down when done benchmarking:
+#   uv run sky down cue-worker-l40s
+#
+# The L40S has 48GB VRAM and ~864 GB/s bandwidth (2.9x the L4 in the current
+# g6.2xlarge prod worker), so it both decodes faster and leaves ~30GB of headroom
+# for larger generation batches once cross-concept batching lands.
+
+resources:
+  cloud: aws
+  region: us-east-1
+  accelerators: L40S:1        # g6e.xlarge
+  disk_size: 200              # matches prod worker; FLAS checkpoint is ~18GB
+  ports:
+    - 7870
+
+workdir: .
+
+setup: |
+  set -euo pipefail
+  # The Deep Learning AMI / SkyPilot image ships CUDA drivers; we just need the
+  # Python env. Use uv for a fast, reproducible install of the repo + FLAS.
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$PATH"
+  uv venv .venv --python 3.11
+  uv pip install -e .
+  # Download the FLAS checkpoint (idempotent; snapshot_download skips cached files).
+  mkdir -p checkpoints/flas-gemma-2-9b-it
+  .venv/bin/python - <<'PY'
+  from huggingface_hub import snapshot_download
+  snapshot_download(repo_id="flas-ai/flas-gemma-2-9b-it", local_dir="checkpoints/flas-gemma-2-9b-it")
+  PY
+
+run: |
+  set -euo pipefail
+  export PATH="$HOME/.local/bin:$PATH"
+  export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
+  # Serve the worker. It loads the model lazily on first request; force a load so
+  # `sky launch` only returns once the GPU is actually ready to serve.
+  .venv/bin/python v2/llm_worker.py --host 0.0.0.0 --port 7870

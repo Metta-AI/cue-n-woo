@@ -1,0 +1,19 @@
+--- a/sky/provision/aws/config.py
++++ b/sky/provision/aws/config.py
+@@ -1,5 +1,15 @@
+     # The head node needs to have an IAM role that allows it to create further
+     # EC2 instances.
+-    if 'IamInstanceProfile' not in node_cfg:
++    #
++    # cue-n-woo PATCH (see cue-n-woo repo v2/coworld/deploy/skypilot_patch/):
++    # In our AWS account, no available identity has iam:PassRole, so SkyPilot
++    # cannot attach its default skypilot-v1 instance profile. Our workers need no
++    # AWS perms at runtime (they serve a model from local disk) and the controller
++    # uses uploaded LOCAL_CREDENTIALS, so launching with NO instance profile works.
++    # Setting SKYPILOT_SKIP_INSTANCE_PROFILE=1 skips the attach entirely.
++    import os as _os
++    if _os.environ.get('SKYPILOT_SKIP_INSTANCE_PROFILE') == '1':
++        pass
++    elif 'IamInstanceProfile' not in node_cfg:
+         iam = aws.resource('iam', region_name=region, **aws_credentials)
+         node_cfg['IamInstanceProfile'] = _configure_iam_role(iam)
