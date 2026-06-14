@@ -331,7 +331,16 @@
       "description": "Baseline LLM harness seeded with Kyle's optional per-phase question suggestions; the model may freely ignore them."
     }
   ],
-  "commissioner": [],
+  "commissioner": [
+    {
+      "id": "cue-n-woo-commissioner",
+      "name": "Cue n Woo Commissioner",
+      "type": "commissioner",
+      "description": "Cue n Woo commissioner with leaderboard-neighbor scheduling and throttled episode dispatch.",
+      "source_url": "https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner",
+      "image": "{{COMMISSIONER_IMAGE}}"
+    }
+  ],
   "reporter": [
     {
       "id": "softmax-default-reporter",

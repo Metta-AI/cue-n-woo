@@ -345,7 +345,17 @@
       "image": "coworld-default-reporter:latest"
     }
   ],
-  "commissioner": [],
+  "commissioner": [
+    {
+      "type": "commissioner",
+      "image": "ghcr.io/metta-ai/commissioners-cue-n-woo@sha256:4b61b433d6881de91821986be2b43fb1fad77cf1bef15eac8ff84d556e387fab",
+      "env": {},
+      "id": "cue-n-woo-commissioner",
+      "name": "Cue n Woo Commissioner",
+      "description": "Cue n Woo commissioner with leaderboard-neighbor scheduling and throttled episode dispatch.",
+      "source_url": "https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner"
+    }
+  ],
   "grader": [],
   "diagnoser": [],
   "optimizer": [
