@@ -65,7 +65,7 @@ def test_coworld_game_and_stub_players_finish_offline(tmp_path: Path) -> None:
             {
                 "tokens": tokens,
                 "players": [{"name": "Alice"}, {"name": "Bob"}],
-                "llm_worker_url": "https://cue-n-woo-worker.softmax-research.net",
+                "llm_worker_url": "https://cue-n-woo-fleet.softmax-research.net",
                 "stub_worker": True,
                 "round_timeout_seconds": 60,
                 "private_questions_per_player": 3,
