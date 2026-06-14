@@ -9,7 +9,7 @@ episode launch at once. This server:
 
   * caps simultaneous in-flight games to keep the worker near a target load
     (see scheduling.py), staggering episode starts;
-  * guarantees every entrant policy plays at least one game;
+  * schedules configurable leaderboard-neighbor games for every champion;
   * otherwise applies straightforward average-score ranking.
 
 Protocol (from coworld.commissioner.protocol + the platform driver):
@@ -26,14 +26,13 @@ import json
 import os
 from typing import Any
 
-import websockets
 from websockets.asyncio.server import serve
 
 from coworld.commissioner.protocol import (
-    DescribeDivisionRequest,
     DescribeDivisionResponse,
     DivisionDescription,
     DivisionRanking,
+    DivisionLeaderboardEntry,
     EpisodeFailed,
     EpisodeRequest,
     EpisodeResult,
@@ -45,14 +44,14 @@ from coworld.commissioner.protocol import (
     ScheduleEpisodes,
     ScheduleRoundsRequest,
     ScheduleRoundsResponse,
-    RoundSpec,
     RoundConfig,
-    DivisionLeaderboardEntry,
+    RoundSpec,
 )
 
 from v2.coworld.commissioner.scheduling import (
+    CommissionerMatchmakingConfig,
     CommissionerSchedulingConfig,
-    round_robin_pairings,
+    leaderboard_neighbor_pairings,
 )
 
 PORT = int(os.environ.get("COMMISSIONER_PORT", "8080"))
@@ -68,8 +67,10 @@ def _episode_for(pair: tuple[Any, Any], variant_id: str, seq: int) -> EpisodeReq
     )
 
 
-def _plan_round(round_start: RoundStart) -> tuple[list[EpisodeRequest], CommissionerSchedulingConfig]:
-    """Build the full episode list for a round (every entrant in >=1 game)."""
+def _plan_round(
+    round_start: RoundStart,
+) -> tuple[list[EpisodeRequest], CommissionerSchedulingConfig]:
+    """Build the full episode list for a round from leaderboard-neighbor games."""
     cfg_dict = round_start.league.commissioner_config or {}
     # Pull the game timeout from the variant config when present so the load math
     # tracks the real per-game window.
@@ -77,12 +78,35 @@ def _plan_round(round_start: RoundStart) -> tuple[list[EpisodeRequest], Commissi
     if round_start.variants:
         game_timeout = round_start.variants[0].game_config.get("round_timeout_seconds")
     sched = CommissionerSchedulingConfig.from_config(cfg_dict, game_timeout_seconds=game_timeout)
+    matchmaking = CommissionerMatchmakingConfig.from_config(cfg_dict)
 
     variant_id = round_start.variants[0].id if round_start.variants else "default"
-    entrants = [m.policy_version_id for m in round_start.memberships]
-    pairings = round_robin_pairings(entrants)
+    entrants = _champion_policy_ids(round_start)
+    pairings = leaderboard_neighbor_pairings(
+        entrants,
+        round_start.recent_results,
+        min_episodes_per_champion=matchmaking.min_episodes_per_champion,
+    )
     episodes = [_episode_for(pair, variant_id, i) for i, pair in enumerate(pairings)]
     return episodes, sched
+
+
+def _champion_policy_ids(round_start: RoundStart) -> list[Any]:
+    champion_ids = [
+        membership.policy_version_id
+        for membership in round_start.memberships
+        if membership.status == "competing" and membership.is_champion
+    ]
+    if champion_ids:
+        return champion_ids
+
+    # Older league snapshots may not have is_champion populated. Keep the
+    # commissioner operational by falling back to active entrants.
+    return [
+        membership.policy_version_id
+        for membership in round_start.memberships
+        if membership.status == "competing"
+    ]
 
 
 class RoundConductor:
@@ -150,7 +174,9 @@ class RoundConductor:
         counts: dict[Any, int] = {}
         for result in self._results:
             for score in result.scores:
-                totals[score.policy_version_id] = totals.get(score.policy_version_id, 0.0) + score.score
+                totals[score.policy_version_id] = (
+                    totals.get(score.policy_version_id, 0.0) + score.score
+                )
                 counts[score.policy_version_id] = counts.get(score.policy_version_id, 0) + 1
         ranked = sorted(
             totals.keys(),
@@ -167,7 +193,11 @@ class RoundConductor:
             for i, pid in enumerate(ranked)
         ]
         division_id = self._round_start.divisions[0].id if self._round_start.divisions else None
-        results = [DivisionRanking(division_id=division_id, rankings=entries)] if division_id else []
+        results = (
+            [DivisionRanking(division_id=division_id, rankings=entries)]
+            if division_id
+            else []
+        )
         return RoundComplete(results=results)
 
 
@@ -265,7 +295,10 @@ def _rank_division(req: RankDivisionRequest) -> RankDivisionResponse:
 def _describe_division() -> DescribeDivisionResponse:
     return DescribeDivisionResponse(
         description=DivisionDescription(
-            round_structure="Round-robin: every entrant plays at least one two-player game.",
+            round_structure=(
+                "Leaderboard-neighbor scheduling: every champion anchors a configurable "
+                "minimum number of two-player games against nearby policies."
+            ),
             scoring_mechanics="Average game score across the round; higher is better.",
             leaderboard_rules="Policies are ranked by mean score over all games played.",
         )
