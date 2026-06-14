@@ -1,12 +1,12 @@
 # LLM Player Observation
 
-`v2/coworld/players/baseline.py` is the Coworld LLM player harness. It connects to the game server over the player WebSocket and calls Amazon Bedrock Converse with Claude Opus 4.8. Other players (e.g. `v2/coworld/players/kyle.py`) reuse this harness, optionally passing non-binding per-phase advice the model may ignore.
+`v2/coworld/players/baseline.py` is the Coworld LLM player harness. It connects to the game server over the player WebSocket and calls Amazon Bedrock Converse with Claude Opus 4.6. Other players (e.g. `v2/coworld/players/kyle.py`) reuse this harness, optionally passing non-binding per-phase advice the model may ignore.
 
 ## Bedrock Request
 
 For each decision, Claude receives exactly one user message and one forced tool:
 
-- `modelId`: `us.anthropic.claude-opus-4-8` by default, overridable with `BEDROCK_CLAUDE_MODEL_ID`.
+- `modelId`: `us.anthropic.claude-opus-4-6-v1` by default, overridable with `BEDROCK_CLAUDE_MODEL_ID`.
 - `inferenceConfig`: `{"maxTokens": 1024}`.
 - `toolChoice`: forced to `submit_action`.
 - The model must return a `submit_action` tool call.
