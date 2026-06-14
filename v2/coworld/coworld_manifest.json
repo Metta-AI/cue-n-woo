@@ -69,7 +69,7 @@
           "type": "number",
           "minimum": 10,
           "maximum": 3600,
-          "default": 300
+          "default": 600
         },
         "private_questions_per_player": {
           "type": "integer",
@@ -383,7 +383,7 @@
         ],
         "llm_worker_url": "https://cue-n-woo-fleet.softmax-research.net",
         "require_signing": true,
-        "round_timeout_seconds": 300,
+        "round_timeout_seconds": 600,
         "private_questions_per_player": 3,
         "challenge_questions_per_player": 3,
         "max_question_tokens": 1024,
@@ -397,7 +397,7 @@
         "flas_steps": 3,
         "reveal_concept_to_clients": false
       },
-      "description": "Two-player default cue-n-woo game with a five-minute hard timer."
+      "description": "Two-player default cue-n-woo game with a ten-minute hard timer."
     }
   ],
   "certification": {
@@ -412,7 +412,7 @@
       ],
       "llm_worker_url": "https://cue-n-woo-fleet.softmax-research.net",
       "stub_worker": true,
-      "round_timeout_seconds": 300,
+      "round_timeout_seconds": 600,
       "private_questions_per_player": 3,
       "challenge_questions_per_player": 3,
       "max_question_tokens": 1024,

@@ -77,7 +77,7 @@ def load_config() -> dict[str, Any]:
             "tokens": ["alice-token", "bob-token"],
             "players": [{"name": "Alice"}, {"name": "Bob"}],
             "llm_worker_url": "http://127.0.0.1:7870",
-            "round_timeout_seconds": 300,
+            "round_timeout_seconds": 600,
         }
     return json.loads(read_data(uri).decode("utf-8"))
 
@@ -229,7 +229,7 @@ class EpisodeState:
         self.results: dict[str, Any] | None = None
         self.events: list[dict[str, Any]] = []
         self.started_at = time.time()
-        self.deadline = self.started_at + float(CONFIG.get("round_timeout_seconds", 300))
+        self.deadline = self.started_at + float(CONFIG.get("round_timeout_seconds", 600))
         self.done = False
         self.hidden_concept = select_concept(CONFIG)
         self.worker = WorkerClient(CONFIG.get("llm_worker_url", "http://127.0.0.1:7870"))

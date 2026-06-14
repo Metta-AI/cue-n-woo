@@ -12,7 +12,7 @@ The server sends JSON observations:
   "type": "state",
   "slot": 0,
   "phase": "private_questions",
-  "remaining_seconds": 300,
+  "remaining_seconds": 600,
   "counts": [
     {"chats": 0, "proposals": 0, "answers": 0},
     {"chats": 0, "proposals": 0, "answers": 0}
