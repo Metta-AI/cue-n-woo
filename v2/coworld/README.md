@@ -26,6 +26,12 @@ Policy debugging notes:
 - Judge responses are capped by `judge_max_tokens`; the Claude policy prompt explicitly tells the model that prior
   judge answers may be truncated at that output-token limit.
 
+Commissioner notes:
+
+- Cue n Woo league scheduling is handled by `ghcr.io/metta-ai/commissioners-cue-n-woo`, built from the shared
+  `Metta-AI/commissioners` ruleset strategy commissioner. Keep tournament scheduling changes there rather than adding
+  another in-repo commissioner server.
+
 Scoring notes:
 
 - If two submitted answers are exact duplicates, or if one answer is a full string prefix of the other after whitespace
