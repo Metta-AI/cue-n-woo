@@ -129,27 +129,32 @@ class PriorityBatchScheduler:
 
 
 def compatibility_key(op, payload):
-    concept_key = stable_digest(payload.get("concept", {"type": "text", "text": ""}))
+    # Concept is intentionally NOT part of the key: generate_batch/choice_logprobs
+    # stack a distinct concept per batch row (FLAS applies concepts per row), so
+    # requests with different concepts batch together. Only genuinely shared
+    # scalars (steps, sampling) must match within a batch.
     flas = payload.get("flas", {})
     steps = int(flas.get("steps", 3))
     if op == "generate":
         sampling = payload.get("sampling", {})
         return (
             op,
-            concept_key,
             steps,
             int(sampling.get("max_tokens", DEFAULT_MAX_GENERATION_TOKENS)),
             float(sampling.get("temperature", 0.7)),
         )
     if op == "choice-logprobs":
         ordering = payload.get("ordering", {})
-        return (op, concept_key, steps, ordering.get("mode", "given_order"))
+        return (op, steps, ordering.get("mode", "given_order"))
     return None
 
 
 def stable_digest(value):
     data = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(data).hexdigest()
+
+
+SERVER_STARTED_AT = time.time()
 
 
 class FlasModel:
@@ -161,6 +166,11 @@ class FlasModel:
         self.gen = None
         self.lock = threading.Lock()
         self.loaded_at = None
+        # Observability: track load lifecycle + last error so /health explains
+        # *why* a replica is unhealthy, not just that it is.
+        self.load_state = "unloaded"  # unloaded | loading | loaded | error
+        self.load_error = None
+        self.requests_served = 0
 
     def health(self):
         device = None
@@ -182,15 +192,37 @@ class FlasModel:
             allocated_vram_mb = None
             reserved_vram_mb = None
             pass
+        # System RAM: loading the 9B model spikes host RAM (shards staged on CPU
+        # before moving to GPU), so a low available figure here explains OOM kills.
+        ram_total_mb = ram_available_mb = ram_used_pct = None
+        try:
+            with open("/proc/meminfo") as fh:
+                mem = {}
+                for line in fh:
+                    key, _, rest = line.partition(":")
+                    mem[key] = int(rest.strip().split()[0])  # kB
+            ram_total_mb = round(mem["MemTotal"] / 1024, 1)
+            ram_available_mb = round(mem["MemAvailable"] / 1024, 1)
+            ram_used_pct = round(100 * (1 - mem["MemAvailable"] / mem["MemTotal"]), 1)
+        except Exception:
+            pass
         return {
             "ok": True,
             "loaded": self.gen is not None,
+            "load_state": self.load_state,
+            "load_error": self.load_error,
             "model_id": self.model_id if self.gen is not None else None,
             "device": device,
             "cuda_available": cuda_available,
             "peak_vram_mb": peak_vram_mb,
             "allocated_vram_mb": allocated_vram_mb,
             "reserved_vram_mb": reserved_vram_mb,
+            "ram_total_mb": ram_total_mb,
+            "ram_available_mb": ram_available_mb,
+            "ram_used_pct": ram_used_pct,
+            "requests_served": self.requests_served,
+            "uptime_seconds": round(time.time() - SERVER_STARTED_AT, 1),
+            "loaded_at": self.loaded_at,
         }
 
     def load(self, payload=None):
@@ -204,13 +236,22 @@ class FlasModel:
             self.model_id = payload.get("model_id", self.model_id)
             self.layer = payload.get("layer", self.layer)
             self.num_blocks = payload.get("num_blocks", self.num_blocks)
-            self.gen = load_generator(
-                self.flow_ckpt,
-                model_id=self.model_id,
-                layer=self.layer,
-                num_blocks=self.num_blocks,
-            )
+            self.load_state = "loading"
+            self.load_error = None
+            try:
+                self.gen = load_generator(
+                    self.flow_ckpt,
+                    model_id=self.model_id,
+                    layer=self.layer,
+                    num_blocks=self.num_blocks,
+                )
+            except Exception as exc:
+                # Surface the failure in /health instead of dying opaquely.
+                self.load_state = "error"
+                self.load_error = f"{type(exc).__name__}: {exc}"
+                raise
             self.loaded_at = time.time()
+            self.load_state = "loaded"
             return {"message": "Model loaded.", **self.health()}
 
     def ensure_loaded(self):
@@ -223,10 +264,13 @@ class FlasModel:
             try:
                 self.cleanup_request_state()
                 if op == "generate":
-                    return self.generate_batch(payloads)
-                if op == "choice-logprobs":
-                    return [self.choice_logprobs(payload) for payload in payloads]
-                raise ValueError(f"Unsupported operation: {op}")
+                    result = self.generate_batch(payloads)
+                elif op == "choice-logprobs":
+                    result = self.choice_logprobs_batch(payloads)
+                else:
+                    raise ValueError(f"Unsupported operation: {op}")
+                self.requests_served += len(payloads)
+                return result
             finally:
                 self.cleanup_request_state()
 
@@ -323,10 +367,33 @@ class FlasModel:
     def hidden_size(self):
         return int(self.gen.llm.config.hidden_size)
 
+    def stack_concepts(self, concepts):
+        """Resolve a list of raw concepts and stack into per-row batch tensors.
+
+        FLAS applies a distinct concept per batch row (the cross-attn hook indexes
+        ``_concept_hidden[:bsz]`` / ``_concept_mask[:bsz]`` and masks per row), so a
+        batch may mix different concepts. Concepts can have different token lengths,
+        so pad to the max length and zero the mask on padding; padded key positions
+        are masked out of the cross-attention and contribute nothing.
+
+        Returns ``(hidden [bsz, Tmax, H], mask [bsz, Tmax])`` on cuda.
+        """
+        resolved = [self.resolve_concept(concept) for concept in concepts]
+        max_len = max(h.shape[1] for h, _ in resolved)
+        hidden_dim = resolved[0][0].shape[-1]
+        bsz = len(resolved)
+        hidden = resolved[0][0].new_zeros((bsz, max_len, hidden_dim))
+        mask = resolved[0][1].new_zeros((bsz, max_len))
+        for i, (h, m) in enumerate(resolved):
+            length = h.shape[1]
+            hidden[i, :length] = h[0]
+            mask[i, :length] = m[0]
+        return hidden, mask
+
     def generate_batch(self, payloads):
         if not payloads:
             return []
-        concept_hidden, concept_mask = self.resolve_concept(payloads[0].get("concept"))
+        concept_hidden, concept_mask = self.stack_concepts([p.get("concept") for p in payloads])
         prompts = [str(payload.get("prompt", "")) for payload in payloads]
         flowtimes = [float(payload.get("flas", {}).get("flowtime", 2.0)) for payload in payloads]
         steps = int(payloads[0].get("flas", {}).get("steps", 3))
@@ -393,6 +460,8 @@ class FlasModel:
         input_ids = enc.input_ids
         attention_mask = enc.attention_mask
         prompt_len = input_ids.shape[1]
+        # concept tensors may be a single concept ([1, T, H]) to broadcast across
+        # the batch, or already per-row ([bsz, T, H]) for mixed-concept batches.
         gen._concept_hidden = concept_hidden.expand(bsz, -1, -1).contiguous()
         gen._concept_mask = concept_mask.expand(bsz, -1).contiguous()
         gen._flowtimes = torch.tensor(flowtimes, device="cuda", dtype=torch.float32)
@@ -458,100 +527,132 @@ class FlasModel:
             gen._active = False
             del out, past_kv, generated, next_logits, input_ids, attention_mask, enc, eos, unfinished, probs, next_token, position_ids
 
-    def choice_logprobs(self, payload):
-        choices = payload.get("choices", [])
-        if not choices:
-            raise ValueError("choices must be non-empty.")
-        if any(not isinstance(choice, str) or not choice.strip() for choice in choices):
-            raise ValueError("choices must be non-empty strings.")
-        mode = payload.get("ordering", {}).get("mode", "given_order")
-        if mode == "given_order":
-            orderings = [tuple(range(len(choices)))]
-        elif mode == "all_permutations":
-            orderings = list(itertools.permutations(range(len(choices))))
-        else:
-            raise ValueError("ordering.mode must be 'given_order' or 'all_permutations'.")
-        concept_hidden, concept_mask = self.resolve_concept(payload.get("concept"))
-        flowtime = float(payload.get("flas", {}).get("flowtime", 2.0))
-        steps = int(payload.get("flas", {}).get("steps", 3))
-        max_prompt_tokens = int(payload.get("max_prompt_tokens", DEFAULT_SCORING_MAX_PROMPT_TOKENS))
-        sums = [0.0] * len(choices)
-        per_ordering = []
-        for ordering in orderings:
-            ordered_choices = [choices[idx] for idx in ordering]
-            prompt = render_choice_prompt(str(payload.get("prompt", "")), ordered_choices)
-            probs = self.choice_probs_for_order(prompt, ordered_choices, concept_hidden, concept_mask, flowtime, steps, max_prompt_tokens)
-            mapped = [0.0] * len(choices)
-            for local_idx, original_idx in enumerate(ordering):
-                mapped[original_idx] = probs[local_idx]
-                sums[original_idx] += probs[local_idx]
-            per_ordering.append({"ordering": list(ordering), "probabilities": mapped})
-        averaged = [value / len(orderings) for value in sums]
-        return {
-            "id": payload.get("id"),
-            "probabilities": averaged,
-            "orderings": per_ordering,
-        }
+    def choice_logprobs_batch(self, payloads):
+        """Score every choice-logprobs request in a single batched prefill.
 
-    def choice_probs_for_order(self, prompt, choices, concept_hidden, concept_mask, flowtime, steps, max_prompt_tokens):
-        token_ids = [self.gen.tokenizer.encode(choice.strip(), add_special_tokens=False) for choice in choices]
-        prefixes = distinguishing_prefixes(token_ids)
-        raw = self.sequence_next_probs(prompt, concept_hidden, concept_mask, flowtime, steps, prefixes, max_prompt_tokens)
-        total = sum(raw)
-        if total <= 0:
-            return [1.0 / len(raw)] * len(raw)
-        return [value / total for value in raw]
+        Each request expands into one scoring unit per (ordering, distinguishing
+        prefix): a prompt + a concept + a token sequence whose last token's
+        probability we want. We flatten all units across all payloads into rows,
+        run ONE padded forward pass (a distinct concept per row, like generation),
+        then reassemble per-request averaged choice probabilities.
+        """
+        steps = int(payloads[0].get("flas", {}).get("steps", 3))
 
-    def sequence_next_probs(self, prompt, concept_hidden, concept_mask, flowtime, steps, token_sequences, max_prompt_tokens):
+        # Build the flat list of scoring units and remember where each came from.
+        units = []  # each: (formatted_prompt, concept, flowtime, prefix_ids, target_id)
+        plans = []  # per payload: bookkeeping to reassemble
+        for payload in payloads:
+            choices = payload.get("choices", [])
+            if not choices:
+                raise ValueError("choices must be non-empty.")
+            if any(not isinstance(choice, str) or not choice.strip() for choice in choices):
+                raise ValueError("choices must be non-empty strings.")
+            mode = payload.get("ordering", {}).get("mode", "given_order")
+            if mode == "given_order":
+                orderings = [tuple(range(len(choices)))]
+            elif mode == "all_permutations":
+                orderings = list(itertools.permutations(range(len(choices))))
+            else:
+                raise ValueError("ordering.mode must be 'given_order' or 'all_permutations'.")
+            concept = payload.get("concept")
+            flowtime = float(payload.get("flas", {}).get("flowtime", 2.0))
+            max_prompt_tokens = int(payload.get("max_prompt_tokens", DEFAULT_SCORING_MAX_PROMPT_TOKENS))
+            ordering_specs = []
+            for ordering in orderings:
+                ordered_choices = [choices[idx] for idx in ordering]
+                prompt = render_choice_prompt(str(payload.get("prompt", "")), ordered_choices)
+                formatted = self.gen.tokenizer.apply_chat_template(
+                    [{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True
+                )
+                token_ids = [self.gen.tokenizer.encode(choice.strip(), add_special_tokens=False) for choice in ordered_choices]
+                prefixes = distinguishing_prefixes(token_ids)
+                unit_idxs = []
+                for prefix in prefixes:
+                    unit_idxs.append(len(units))
+                    units.append((formatted, concept, flowtime, list(prefix[:-1]), prefix[-1], max_prompt_tokens))
+                ordering_specs.append({"ordering": ordering, "unit_idxs": unit_idxs})
+            plans.append({"id": payload.get("id"), "n_choices": len(choices), "ordering_specs": ordering_specs})
+
+        raw_probs = self.sequence_next_probs_batch(units, steps)
+
+        # Reassemble: within each ordering, normalize the prefix probs across
+        # choices, map back to original choice positions, then average orderings.
+        results = []
+        for plan in plans:
+            n = plan["n_choices"]
+            sums = [0.0] * n
+            per_ordering = []
+            for spec in plan["ordering_specs"]:
+                ordering = spec["ordering"]
+                vals = [raw_probs[i] for i in spec["unit_idxs"]]
+                total = sum(vals)
+                normed = [1.0 / len(vals)] * len(vals) if total <= 0 else [v / total for v in vals]
+                mapped = [0.0] * n
+                for local_idx, original_idx in enumerate(ordering):
+                    mapped[original_idx] = normed[local_idx]
+                    sums[original_idx] += normed[local_idx]
+                per_ordering.append({"ordering": list(ordering), "probabilities": mapped})
+            averaged = [value / len(plan["ordering_specs"]) for value in sums]
+            results.append({"id": plan["id"], "probabilities": averaged, "orderings": per_ordering})
+        return results
+
+    def sequence_next_probs_batch(self, units, steps):
+        """Probability of each unit's target token, in one padded batched prefill.
+
+        ``units`` is a list of (formatted_prompt, concept, flowtime, prefix_ids,
+        target_id, max_prompt_tokens). Rows are right-aligned (left-padded) so the
+        last position of every row is its real final token; we read each row's
+        logits at that final position. A distinct concept per row is stacked via
+        ``stack_concepts`` and the per-row padding mask zeros padded positions.
+        """
         import torch
 
+        if not units:
+            return []
         gen = self.gen
         gen._n_steps = steps
-        out = None
-        input_ids = None
-        attention_mask = None
-        dist = None
-        enc = None
+        tokenizer = gen.tokenizer
+
+        # Tokenize each prompt (capped), append its prefix tokens; these are the
+        # full per-row input sequences whose final-position logits we score.
+        rows = []
+        for formatted, _concept, _flowtime, prefix_ids, _target_id, max_prompt_tokens in units:
+            enc = tokenizer([formatted], truncation=True, max_length=max_prompt_tokens, add_special_tokens=False)
+            ids = list(enc["input_ids"][0]) + list(prefix_ids)
+            rows.append(ids)
+        max_len = max(len(ids) for ids in rows)
+        pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
+        bsz = len(rows)
+
+        input_ids = torch.full((bsz, max_len), pad_id, device="cuda", dtype=torch.long)
+        attention_mask = torch.zeros((bsz, max_len), device="cuda", dtype=torch.long)
+        for i, ids in enumerate(rows):
+            length = len(ids)
+            # Left-pad so the real final token sits at the last column for every row.
+            input_ids[i, max_len - length:] = torch.tensor(ids, device="cuda", dtype=torch.long)
+            attention_mask[i, max_len - length:] = 1
+
+        concept_hidden, concept_mask = self.stack_concepts([u[1] for u in units])
+        flowtimes = torch.tensor([float(u[2]) for u in units], device="cuda", dtype=torch.float32)
+
+        gen._concept_hidden = concept_hidden
+        gen._concept_mask = concept_mask
+        gen._flowtimes = flowtimes
+        gen._padding_mask = attention_mask.float()
+        gen._sa_caches = [None] * steps
+        gen._is_prefill = True
+        gen._past_len = 0
+        gen._position_ids = (attention_mask.cumsum(-1) - 1).clamp(min=0)
+        gen._install_hook()
+        gen._active = True
         try:
-            formatted = gen.tokenizer.apply_chat_template(
-                [{"role": "user", "content": prompt}],
-                tokenize=False,
-                add_generation_prompt=True,
-            )
-            results = []
-            for sequence in token_sequences:
-                prefix_ids = list(sequence[:-1])
-                target_id = sequence[-1]
-                enc = gen.tokenizer(
-                    [formatted],
-                    return_tensors="pt",
-                    truncation=True,
-                    max_length=max_prompt_tokens,
-                    add_special_tokens=False,
-                ).to("cuda")
-                input_ids = enc.input_ids
-                if prefix_ids:
-                    input_ids = torch.cat([input_ids, torch.tensor([prefix_ids], device="cuda", dtype=input_ids.dtype)], dim=1)
-                attention_mask = torch.ones_like(input_ids)
-                gen._concept_hidden = concept_hidden
-                gen._concept_mask = concept_mask
-                gen._flowtimes = torch.tensor([flowtime], device="cuda", dtype=torch.float32)
-                gen._padding_mask = attention_mask.float()
-                gen._sa_caches = [None] * steps
-                gen._is_prefill = True
-                gen._past_len = 0
-                gen._position_ids = (attention_mask.cumsum(-1) - 1).clamp(min=0)
-                gen._install_hook()
-                gen._active = True
-                try:
-                    with torch.inference_mode():
-                        out = gen.llm(input_ids, attention_mask=attention_mask, position_ids=gen._position_ids, use_cache=True)
-                    dist = torch.softmax(out.logits[0, -1, :].float(), dim=-1)
-                    results.append(float(dist[target_id].item()))
-                finally:
-                    gen._active = False
-                    del out, input_ids, attention_mask, dist, enc
-            return results
+            with torch.inference_mode():
+                out = gen.llm(input_ids, attention_mask=attention_mask, position_ids=gen._position_ids, use_cache=True)
+            # Left-padding puts every row's final real token at column -1.
+            dist = torch.softmax(out.logits[:, -1, :].float(), dim=-1)
+            targets = torch.tensor([u[4] for u in units], device="cuda", dtype=torch.long)
+            probs = dist[torch.arange(bsz, device="cuda"), targets]
+            return [float(p) for p in probs.tolist()]
         finally:
             gen._active = False
             gen._remove_hook()
@@ -732,11 +833,29 @@ def make_handler(worker):
         def log_message(self, fmt, *args):
             print(f"{self.address_string()} - {fmt % args}", flush=True)
 
+        @property
+        def route_path(self):
+            # Match on the path only, ignoring any query string. The SkyServe load
+            # balancer forwards requests with a trailing "?" (it builds the URL with
+            # an empty query), so a raw ``self.path == "/generate"`` check would
+            # 404 every proxied request. Strip the query before routing.
+            return self.path.split("?", 1)[0]
+
         def do_GET(self):
-            if self.path == "/health":
+            if self.route_path == "/health":
+                # Liveness: always 200 if the process is up (model may still be loading).
                 payload = worker.model.health()
                 payload["queue_depth"] = worker.scheduler.queue_depth()
                 self.write_json(payload)
+                return
+            if self.route_path == "/ready":
+                # Readiness: 200 only once the model is loaded and can serve. The
+                # SkyServe load balancer probes this so it never routes a request
+                # to a replica that would block on a cold lazy-load.
+                payload = worker.model.health()
+                payload["queue_depth"] = worker.scheduler.queue_depth()
+                status = HTTPStatus.OK if payload.get("loaded") else HTTPStatus.SERVICE_UNAVAILABLE
+                self.write_json(payload, status=status)
                 return
             self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -744,18 +863,18 @@ def make_handler(worker):
             try:
                 body = self.read_body()
                 payload = json.loads(body.decode("utf-8")) if body else {}
-                if self.path == "/load":
+                if self.route_path == "/load":
                     self.write_json(worker.model.load(payload))
                     return
-                if self.path == "/generate":
+                if self.route_path == "/generate":
                     priority = worker.request_priority(self.headers, body)
                     self.write_json(worker.submit_many("generate", payload, priority))
                     return
-                if self.path == "/choice-logprobs":
+                if self.route_path == "/choice-logprobs":
                     priority = worker.request_priority(self.headers, body)
                     self.write_json(worker.submit_many("choice-logprobs", payload, priority))
                     return
-                if self.path == "/bench/microbatch":
+                if self.route_path == "/bench/microbatch":
                     self.write_json(worker.model.microbatch_bench(payload))
                     return
                 self.send_error(HTTPStatus.NOT_FOUND)

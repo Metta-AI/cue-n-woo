@@ -1,0 +1,84 @@
+# Public HTTPS endpoint for the cue-n-woo autoscaling WORKER FLEET.
+#
+# Exposes the SkyServe load balancer as
+#   https://cue-n-woo-fleet.softmax-research.net
+# fronting the multi-replica fleet (vs the single-box cue-n-woo-worker URL).
+#
+# Topology note: the SkyServe controller/LB runs in a DIFFERENT VPC from the EKS
+# cluster, so we cannot route to it by private IP (as the single-box ingress
+# does). Instead we target the controller's STABLE Elastic IP over the internet.
+# The LB listens on port 30001. The controller's security group already allows
+# 30001-30020 from 0.0.0.0/0.
+#
+#   kubectl apply -f v2/coworld/deploy/fleet-ingress.yaml
+#
+# EIP: 3.227.169.177 (eipalloc-07b2fa3c5c37f0564), attached to the serve
+# controller. If the controller is REPLACED, re-associate this EIP to the new
+# controller instance (the EIP and this manifest stay the same) — or update the
+# address below if a new EIP is used.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cue-n-woo-fleet
+  namespace: default
+  labels:
+    app: cue-n-woo-fleet
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 30001
+      targetPort: 30001
+      protocol: TCP
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: cue-n-woo-fleet
+  namespace: default
+  labels:
+    kubernetes.io/service-name: cue-n-woo-fleet  # binds this slice to the Service
+    app: cue-n-woo-fleet
+addressType: IPv4
+ports:
+  - name: http
+    port: 30001
+    protocol: TCP
+endpoints:
+  - addresses:
+      - 3.227.169.177  # EIP on the SkyServe controller/LB; re-point if controller replaced
+    conditions:
+      ready: true
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cue-n-woo-fleet
+  namespace: default
+  labels:
+    app: cue-n-woo-fleet
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Worker request/response bodies (prompts, choice lists) can be sizeable and
+    # generation is slow; raise limits above the nginx defaults.
+    nginx.ingress.kubernetes.io/proxy-body-size: 25m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "900"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "900"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: cue-n-woo-fleet.softmax-research.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: cue-n-woo-fleet
+                port:
+                  number: 30001
+  tls:
+    - hosts:
+        - cue-n-woo-fleet.softmax-research.net
+      secretName: cue-n-woo-fleet-tls
