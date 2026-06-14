@@ -63,7 +63,7 @@
         },
         "llm_worker_url": {
           "type": "string",
-          "default": "https://cue-n-woo-worker.softmax-research.net"
+          "default": "https://cue-n-woo-fleet.softmax-research.net"
         },
         "require_signing": {
           "description": "If true, the game fails to start unless it can load the worker signing key (so tournament priority is guaranteed). If false, a missing or unreadable key degrades to unsigned normal-priority requests. Tournaments should set true.",
@@ -377,7 +377,7 @@
             "name": "Bob"
           }
         ],
-        "llm_worker_url": "https://cue-n-woo-worker.softmax-research.net",
+        "llm_worker_url": "https://cue-n-woo-fleet.softmax-research.net",
         "require_signing": true,
         "round_timeout_seconds": 300,
         "private_questions_per_player": 3,
@@ -405,7 +405,7 @@
           "name": "Bob"
         }
       ],
-      "llm_worker_url": "https://cue-n-woo-worker.softmax-research.net",
+      "llm_worker_url": "https://cue-n-woo-fleet.softmax-research.net",
       "stub_worker": true,
       "round_timeout_seconds": 300,
       "private_questions_per_player": 3,
