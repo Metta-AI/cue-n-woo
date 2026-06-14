@@ -11,75 +11,128 @@
   --a:#54b9ff;--a-bg:#13344d;--b:#ffb454;--b-bg:#4a3411;--good:#46d27f;--bad:#ff6b6b;--warn:#ffce54;
 }
 *{box-sizing:border-box}
-body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg);color:var(--ink);font-size:20px}
-.wrap{max-width:1400px;width:92vw;margin:0 auto;padding:28px 24px 132px}
-.title{display:flex;align-items:center;gap:12px;font-size:34px;font-weight:600}
+body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg);color:var(--ink);font-size:20px;height:100vh;overflow:hidden}
+.wrap{max-width:1400px;width:100%;height:100vh;margin:0 auto;padding:14px 16px 100px;display:flex;flex-direction:column;min-height:0}
+#stage{flex:1;min-height:0;display:flex;flex-direction:column}
 .bolt{color:var(--warn)}
-.live{display:inline-flex;align-items:center;gap:7px;font-size:18px;color:var(--bad);margin-left:3px}
 .pip{width:11px;height:11px;border-radius:50%;display:inline-block}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
 .blink{animation:pulse 1.2s ease-in-out infinite}
 .sub{font-size:18px;color:var(--muted)}
-.judge{display:flex;align-items:center;gap:16px;padding:18px 20px;background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-top:22px}
+.introview,.promptview,.duelview,.finalview{flex:1;min-height:0;display:flex;flex-direction:column}
+.duelview{overflow:hidden}
+.judge{display:flex;align-items:center;gap:16px;padding:14px 18px;background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-top:0}
 .javatar{width:64px;height:64px;border-radius:50%;background:#2b2350;color:#cdb8ff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:22px;flex-shrink:0}
+.jlabel{font-size:17px;font-weight:600;color:var(--ink)}
 .concept{font-size:22px;font-weight:600;color:#d9c6ff}
-.prompt{font-size:21px;color:var(--muted);text-align:center;padding:18px;background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-top:20px;line-height:1.5}
+.prompt{font-size:21px;color:var(--muted);text-align:center;padding:18px;background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-top:14px;line-height:1.5}
+.intro{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
 .prompt b{color:var(--ink);font-weight:600}
-.qa{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px;margin-top:20px}
+.questionbox{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-top:14px;padding:14px 18px;text-align:center}
+.context{font-size:17px;color:var(--muted);margin-bottom:6px}
+.duelq{font-size:26px;line-height:1.32;font-weight:650;color:var(--ink)}
+.qa{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px;margin-top:14px;flex:1;min-height:0;overflow:auto}
 .qahead{display:flex;align-items:center;gap:12px;font-size:21px;font-weight:600;margin-bottom:18px}
 .qa .label{font-size:15px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:6px}
 .qtext,.rtext{font-size:24px;line-height:1.5}
 .rtext{color:var(--ink)}
 .qtext{color:var(--muted);margin-bottom:22px}
-.cards{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:20px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:14px;flex:1;min-height:130px}
 @media(max-width:640px){.cards{grid-template-columns:1fr}}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px;opacity:0;transform:translateY(8px);transition:opacity .4s,transform .4s,border-color .3s}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px;opacity:0;transform:translateY(8px);transition:opacity .4s,transform .4s,border-color .3s;display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .card.in{opacity:1;transform:none}
 .card.win{border-color:var(--good)}
-.chead{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
-.who{display:flex;align-items:center;gap:12px;font-size:21px;font-weight:600}
-.dot{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:600}
+.chead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.who{display:flex;align-items:center;gap:12px;font-size:21px;font-weight:600;min-width:0}
+.dot{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:600;flex-shrink:0}
 .dotA{background:var(--a-bg);color:var(--a)}.dotB{background:var(--b-bg);color:var(--b)}
-.ans{font-size:24px;line-height:1.55;min-height:1.5em}
-.badge{font-size:17px;opacity:0;transition:opacity .3s;display:inline-flex;align-items:center;gap:5px}
+.ans{font-size:26px;line-height:1.42;min-height:0;flex:1;overflow:auto}
+.badge{font-size:17px;opacity:0;transition:opacity .3s;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
 .badgeA{color:var(--a)}.badgeB{color:var(--b)}
 .tag{font-size:15px;color:var(--muted);margin-top:14px}
 .tag b{color:var(--ink);font-weight:600}
-.meter{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin-top:20px}
-.mstatus{display:flex;align-items:center;justify-content:space-between;font-size:19px;color:var(--muted);margin-bottom:14px}
-.delta{font-family:var(--mono);font-size:17px;color:var(--dim)}
-.pcts{display:flex;justify-content:space-between;font-size:21px;font-weight:600;margin-bottom:9px}
+.meter{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 18px;margin-top:14px;flex-shrink:0}
+.mstatus{display:flex;align-items:center;justify-content:space-between;gap:16px;font-size:17px;color:var(--muted);margin-bottom:10px}
+.mstatus span:first-child{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.delta{font-family:var(--mono);font-size:17px;color:var(--dim);white-space:nowrap}
+.pcts{display:flex;justify-content:space-between;font-size:18px;font-weight:600;margin-bottom:7px}
 .pa{color:var(--a)}.pb{color:var(--b)}
-.bar{height:26px;border-radius:10px;overflow:hidden;background:var(--line);display:flex}
+.bar{height:18px;border-radius:9px;overflow:hidden;background:var(--line);display:flex}
 .barA{background:var(--a);transition:width .2s linear}.barB{flex:1;background:var(--b)}
-.names{display:flex;justify-content:space-between;font-size:17px;color:var(--dim);margin-top:9px}
-.score{display:flex;justify-content:center;gap:28px;font-size:21px;margin-top:26px;color:var(--muted)}
+.names{display:flex;justify-content:space-between;font-size:14px;color:var(--dim);margin-top:6px}
+.score{display:flex;justify-content:center;gap:28px;font-size:17px;margin-top:12px;color:var(--muted);flex-wrap:wrap}
 .score b{font-weight:600}.sa{color:var(--a)}.sb{color:var(--b)}
 .bar-controls{position:fixed;left:0;right:0;bottom:0;background:rgba(14,17,22,.94);border-top:1px solid var(--line);backdrop-filter:blur(6px)}
 .ctrls{max-width:1400px;width:92vw;margin:0 auto;padding:16px 24px;display:flex;align-items:center;gap:18px}
-button{font:inherit;font-size:19px;background:var(--card);color:var(--ink);border:1px solid var(--line2);border-radius:10px;padding:12px 20px;cursor:pointer}
+button{font:inherit;font-size:19px;background:var(--card);color:var(--ink);border:1px solid var(--line2);border-radius:10px;padding:12px 20px;cursor:pointer;white-space:nowrap}
 button:hover{border-color:var(--a)}
 button:disabled{opacity:.4;cursor:default}
-.prog{flex:1;height:8px;background:var(--line);border-radius:4px;overflow:hidden}
+.prog{flex:1;height:8px;background:var(--line);border-radius:4px;overflow:hidden;min-width:48px}
 .progfill{height:100%;width:0;background:var(--a);transition:width .3s}
 .spd{font-size:19px;color:var(--muted);min-width:42px;text-align:center}
-.final{text-align:center;padding:30px;margin-top:24px;background:var(--panel);border:1px solid var(--line);border-radius:14px}
+.final{text-align:center;padding:30px;margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:14px;flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
 .final h2{margin:0 0 10px;font-size:38px}
 .crown{color:var(--warn)}
 .err{color:var(--bad);padding:32px;text-align:center;font-size:22px}
-.hint{font-size:17px;color:var(--dim);text-align:center;margin-top:16px;min-height:1.4em}
+.hint,.rawrow{display:none}
+.rawrow{text-align:center;margin-top:10px}
 a.raw{color:var(--dim);font-size:17px;text-decoration:none}
+@media(max-width:720px),(max-height:760px){
+  body{font-size:16px}
+  .wrap{width:100%;padding:8px 8px 68px}
+  .pip{width:8px;height:8px}
+  .sub{font-size:11px;text-align:right}
+  .judge{gap:8px;padding:7px 8px}
+  .javatar{width:28px;height:28px;font-size:12px}
+  .jlabel{font-size:11px}
+  .concept{font-size:12px}
+  .prompt{font-size:13px;line-height:1.3;padding:8px 10px;margin-top:8px;border-radius:8px}
+  .questionbox{padding:10px;margin-top:8px}
+  .context{font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px}
+  .duelq{font-size:22px;line-height:1.25}
+  .qa{padding:13px 14px;margin-top:8px;border-radius:8px}
+  .qahead{font-size:14px;gap:8px;margin-bottom:10px}
+  .qa .label{font-size:11px;margin-bottom:4px}
+  .qtext,.rtext{font-size:20px}
+  .cards{gap:9px;margin-top:9px;min-height:118px}
+  .card{padding:13px 14px;border-radius:8px}
+  .chead{margin-bottom:8px}
+  .who{gap:8px;font-size:14px}
+  .dot{width:28px;height:28px;font-size:12px}
+  .ans{font-size:24px;line-height:1.32}
+  .badge,.tag{font-size:12px}
+  .tag{margin-top:8px}
+  .meter{padding:9px 10px;margin-top:9px;border-radius:8px}
+  .mstatus{display:block}
+  .delta{display:block;margin-top:3px}
+  .pcts{font-size:14px;margin-bottom:5px}
+  .bar{height:14px;border-radius:7px}
+  .names{font-size:11px;margin-top:5px}
+  .score{font-size:13px;gap:16px;margin-top:9px}
+  .ctrls{width:100%;padding:8px 10px;gap:7px}
+  button{font-size:12px;padding:7px 8px}
+  .prog{height:6px;border-radius:3px}
+  .spd{font-size:12px;min-width:28px}
+}
+@media(max-height:700px){
+  .wrap{padding-top:8px;padding-bottom:68px}
+  .judge{padding:6px 8px}
+  .javatar{width:24px;height:24px}
+  .prompt,.questionbox,.qa,.cards,.meter,.score{margin-top:7px}
+  .duelq{font-size:21px}
+  .ans{font-size:23px}
+  .qtext,.rtext{font-size:19px}
+  .ctrls{padding-top:6px;padding-bottom:6px}
+}
+@media(max-width:640px){
+  .cards{grid-template-columns:1fr}
+}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div style="display:flex;align-items:center;justify-content:space-between">
-    <div class="title">Cue 'n' Woo <span class="live"><span class="pip blink" style="background:var(--bad)"></span>replay</span></div>
-    <div class="sub" id="roundlbl"></div>
-  </div>
+  <a class="raw" href="replay/raw" hidden>view raw json</a>
   <div id="stage"></div>
-  <div class="hint" id="hint"></div>
-  <div style="text-align:center;margin-top:10px"><a class="raw" href="/client/replay/raw">view raw json</a></div>
 </div>
 <div class="bar-controls"><div class="ctrls">
   <button id="btnPlay">&#9654; Play</button>
@@ -91,7 +144,7 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
 </div></div>
 <script>
 (function(){
-  var stage=document.getElementById('stage'), hint=document.getElementById('hint'), roundlbl=document.getElementById('roundlbl');
+  var stage=document.getElementById('stage');
   var btnPlay=document.getElementById('btnPlay'),btnPrev=document.getElementById('btnPrev'),btnNext=document.getElementById('btnNext'),btnSpd=document.getElementById('btnSpd');
   var progfill=document.getElementById('progfill'),spdlbl=document.getElementById('spdlbl');
   function esc(s){var d=document.createElement('div');d.textContent=(s==null?'':String(s));return d.innerHTML;}
@@ -168,7 +221,6 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
 
   function render(){
     if(!show) return;
-    roundlbl.textContent = (idx>=firstDuelStep() && idx<=lastDuelStep()) ? ('round '+currentDuelNumber()+' of '+show.duels.length) : '';
     progfill.style.width = (totalSteps()<=1?0:(idx/(totalSteps()-1))*100)+'%';
     btnPrev.disabled = idx<=0; btnNext.disabled = idx>=totalSteps()-1;
     if(idx===0) renderIntro();
@@ -181,27 +233,29 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
   // so the secret style the judge is channeling is always visible.
   function judgeCard(){
     return '<div class="judge"><div class="javatar">J</div><div>'+
-        '<div style="font-size:.85em;font-weight:600">Judge <span style="color:var(--dim);font-weight:400">&middot; presiding</span></div>'+
+        '<div class="jlabel">Judge &middot; presiding</div>'+
         '<div class="concept">secretly channeling: '+(show.concept?esc(show.concept):'&lt;hidden&gt;')+'</div>'+
       '</div></div>';
   }
 
   function renderIntro(){
-    hint.textContent='Each round, two contestants answer — the judge picks the answer that best fits its secret style.';
     stage.innerHTML =
+      '<div class="introview">'+
       judgeCard()+
-      '<div class="prompt">A theory-of-mind duel: <b>'+esc(show.nameA)+'</b> vs <b>'+esc(show.nameB)+'</b> &mdash; '+show.duels.length+' challenge rounds after private judge interviews.</div>';
+      '<div class="prompt intro">A theory-of-mind duel: <b>'+esc(show.nameA)+'</b> vs <b>'+esc(show.nameB)+'</b> &mdash; '+show.duels.length+' challenge rounds after private judge interviews.</div>'+
+      '</div>';
   }
 
   function renderPrompt(p){
-    hint.textContent='Private interview: each player asked the judge three questions before writing challenge prompts.';
     stage.innerHTML =
+      '<div class="promptview">'+
       judgeCard()+
       '<div class="qa">'+
         '<div class="qahead"><div class="dot dot'+p.side+'">'+esc(p.name.charAt(0).toUpperCase())+'</div>'+
           esc(p.name)+' <span class="sub">private prompt '+p.index+'</span></div>'+
         '<div class="label">Prompt</div><div class="qtext">&ldquo;'+esc(p.question)+'&rdquo;</div>'+
         '<div class="label">Judge response</div><div class="rtext">&ldquo;'+esc(p.answer)+'&rdquo;</div>'+
+      '</div>'+
       '</div>';
     if(playing) scheduleNext(hold(2000));
   }
@@ -209,12 +263,13 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
   function renderDuel(d){
     var authorName = d.author==='A'?show.nameA:show.nameB;
     var roundNumber=currentDuelNumber();
-    hint.textContent = 'Whoever wrote the question wins points when the judge prefers their answer over the opponent’s.';
     stage.innerHTML =
+      '<div class="duelview">'+
       judgeCard()+
-      '<div class="prompt">Round '+roundNumber+' &middot; question by <b>'+esc(authorName)+'</b><br><b>'+esc(d.question)+'</b></div>'+
+      '<div class="questionbox"><div class="context">Round '+roundNumber+' &middot; question by '+esc(authorName)+'</div><div class="duelq">'+esc(d.question)+'</div></div>'+
       '<div class="cards">'+card('A',show.nameA,d.ansA)+card('B',show.nameB,d.ansB)+'</div>'+
-      meter(d)+scoreboard();
+      meter(d)+scoreboard()+
+      '</div>';
     requestAnimationFrame(function(){
       var cA=document.getElementById('cardA'); if(cA) cA.classList.add('in');
       var cB=document.getElementById('cardB'); if(cB) cB.classList.add('in');
@@ -352,16 +407,17 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
   }
 
   function renderFinal(){
-    clearJudge(); hint.textContent='';
+    clearJudge();
     var a=show.scores[0]||0, b=show.scores[1]||0;
     var winner = a===b?null:(a>b?show.nameA:show.nameB);
     stage.innerHTML=
+      '<div class="finalview">'+
       judgeCard()+
       '<div class="final">'+
       (winner?'<h2><span class="crown">&#128081;</span> '+esc(winner)+' wins</h2>':'<h2>It’s a tie</h2>')+
       '<div class="sub">'+esc(show.nameA)+' '+fmt(a)+' &middot; '+esc(show.nameB)+' '+fmt(b)+'</div>'+
       (show.timeout?'<div class="sub" style="color:var(--warn);margin-top:8px">&#9888; round ended on the clock</div>':'')+
-    '</div>';
+    '</div></div>';
   }
 
   function scheduleNext(ms){ clearTimeout(timer); timer=setTimeout(function(){ if(playing) step(1); }, ms); }
@@ -389,7 +445,14 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
   var speeds=[1,1.5,2,0.5];
   btnSpd.onclick=function(){ speed=speeds[(speeds.indexOf(speed)+1)%speeds.length]; spdlbl.innerHTML=speed+'&times;'; };
 
-  var ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/replay');
+  function websocketUrl(path){
+    var target=new URL(location.href);
+    target.protocol=target.protocol==='https:'?'wss:':'ws:';
+    target.pathname=target.pathname.replace(/\/client\/replay(?:\/.*)?$/,path);
+    target.search=''; target.hash='';
+    return target.toString();
+  }
+  var ws=new WebSocket(websocketUrl('/replay'));
   ws.onmessage=function(e){
     var msg=JSON.parse(e.data);
     if(msg.type==='error'){ stage.innerHTML='<div class="err">'+esc(msg.error)+'</div>'; return; }
