@@ -15,7 +15,7 @@ from websockets.exceptions import ConnectionClosed
 from v2.coworld.harness import game_rules_for_policy
 
 
-DEFAULT_MODEL_ID = "us.anthropic.claude-opus-4-8"
+DEFAULT_MODEL_ID = "us.anthropic.claude-opus-4-6-v1"
 DEFAULT_REGION = "us-east-1"
 MAX_ATTEMPTS = 3
 BEDROCK_ATTEMPTS = 5
