@@ -134,14 +134,15 @@
           "default": 0.7
         },
         "concept_type": {
-          "description": "list selects from data/concepts.json; specific uses specific_concept; random uses a seeded random FLAS vector.",
+          "description": "axis_combo samples one option each from several concept-axis JSON files and joins them; list selects from data/concepts.json; specific uses specific_concept; random uses a seeded random FLAS vector.",
           "type": "string",
           "enum": [
+            "axis_combo",
             "list",
             "specific",
             "random"
           ],
-          "default": "list"
+          "default": "axis_combo"
         },
         "concept_index": {
           "description": "Optional fixed index into data/concepts.json when concept_type is list.",
@@ -159,6 +160,25 @@
         "concept_list_path": {
           "description": "Optional path to a JSON array of text concepts.",
           "type": "string"
+        },
+        "concept_axes_path": {
+          "description": "Optional path to a directory of per-axis JSON arrays, or a JSON object mapping axis names to arrays.",
+          "type": "string"
+        },
+        "concept_axis_names": {
+          "description": "Optional subset of concept axis names to sample from when concept_type is axis_combo.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "concept_axis_count": {
+          "description": "Number of distinct axes to sample and concatenate when concept_type is axis_combo.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 15,
+          "default": 4
         },
         "random_concept_tokens": {
           "type": "integer",
@@ -358,7 +378,8 @@
         "max_prompt_tokens": 1024,
         "judge_max_tokens": 128,
         "temperature": 0.7,
-        "concept_type": "list",
+        "concept_type": "axis_combo",
+        "concept_axis_count": 4,
         "flas_flowtime": 2,
         "flas_steps": 3,
         "reveal_concept_to_clients": false
@@ -385,8 +406,9 @@
       "max_prompt_tokens": 1024,
       "judge_max_tokens": 128,
       "temperature": 0,
-      "concept_type": "list",
-      "concept_index": 0,
+      "concept_type": "axis_combo",
+      "concept_seed": "certification",
+      "concept_axis_count": 4,
       "flas_flowtime": 2,
       "flas_steps": 3,
       "reveal_concept_to_clients": false

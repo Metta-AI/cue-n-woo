@@ -16,7 +16,9 @@ The Coworld game runnable:
   (see `docs/worker_auth.md`).
 
 The game config controls token limits, temperature, concept source, FLAS flowtime/steps, and a hard round timer. The
-default round timer is 300 seconds.
+default round timer is 300 seconds. The default concept source is `axis_combo`: it samples several JSON axes from
+`data/concept_axes/`, chooses one option from each sampled axis, and joins those phrases into the hidden steering
+concept. Existing `list`, `specific`, and `random` concept sources are still supported.
 
 Policy debugging notes:
 

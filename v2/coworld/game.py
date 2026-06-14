@@ -99,6 +99,23 @@ def load_concept_list(path: str | None) -> list[str]:
 CONCEPTS = load_concept_list(CONFIG.get("concept_list_path"))
 
 
+def load_concept_axes(path: str | None) -> dict[str, list[str]]:
+    data_path = Path(path) if path else ROOT / "data" / "concept_axes"
+    if data_path.is_file():
+        raw_axes = json.loads(data_path.read_text())
+        axes = {str(name): values for name, values in raw_axes.items()}
+    else:
+        axes = {}
+        for axis_path in sorted(data_path.glob("*.json")):
+            axes[axis_path.stem] = json.loads(axis_path.read_text())
+    for name, values in axes.items():
+        if not isinstance(values, list) or not values or not all(isinstance(value, str) and value.strip() for value in values):
+            raise ValueError(f"Concept axis {name!r} must be a non-empty JSON array of strings.")
+    if not axes:
+        raise ValueError(f"No concept axes found at {data_path}.")
+    return axes
+
+
 def load_signing_key(require: bool = False) -> Any | None:
     """Private key used to claim tournament priority on the worker, or None.
 
@@ -291,7 +308,30 @@ def select_concept(config: dict[str, Any]) -> dict[str, Any]:
         if index is None:
             return {"type": "text", "text": random.choice(CONCEPTS)}
         return {"type": "text", "text": CONCEPTS[int(index) % len(CONCEPTS)]}
-    raise ValueError("concept_type must be random, specific, or list")
+    if concept_type == "axis_combo":
+        return select_axis_combo_concept(config)
+    raise ValueError("concept_type must be axis_combo, random, specific, or list")
+
+
+def select_axis_combo_concept(config: dict[str, Any]) -> dict[str, Any]:
+    axes = load_concept_axes(config.get("concept_axes_path"))
+    axis_names = [str(name) for name in config.get("concept_axis_names", sorted(axes))]
+    missing = [name for name in axis_names if name not in axes]
+    if missing:
+        raise ValueError(f"Unknown concept axes: {', '.join(missing)}")
+    if not axis_names:
+        raise ValueError("concept_axis_names must contain at least one axis.")
+
+    count = int(config.get("concept_axis_count", 4))
+    if count < 1:
+        raise ValueError("concept_axis_count must be positive.")
+    count = min(count, len(axis_names))
+
+    rng = random.Random(str(config["concept_seed"])) if "concept_seed" in config else random
+    selected_axes = rng.sample(axis_names, count)
+    components = [{"axis": name, "value": rng.choice(axes[name])} for name in selected_axes]
+    text = "; ".join(component["value"] for component in components)
+    return {"type": "text", "text": text, "components": components}
 
 
 def concept_for_worker(concept: dict[str, Any]) -> dict[str, Any]:
