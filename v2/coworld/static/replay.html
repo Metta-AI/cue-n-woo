@@ -182,7 +182,7 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
       var authorIsA = r.submitter===0;
       // "secret" side is the question's author; "opponent" is the other player.
       // Map every per-side field (answer, probability, and the points breakdown)
-      // onto fixed A/B slots so the UI never has to know who authored the round.
+      // onto fixed A/B slots so the UI never has to know who authored the challenge.
       function side(secretVal, opponentVal){ return authorIsA ? secretVal : opponentVal; }
       return {
         author: authorIsA?'A':'B',
@@ -205,7 +205,7 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
         duplicate: !!r.duplicate_conflict
       };
     });
-    return {nameA:nameA,nameB:nameB,concept:concept,prompts:prompts,duels:duels,scores:results.scores||[0,0],status:results.status,timeout:results.timeout};
+    return {nameA:nameA,nameB:nameB,concept:concept,prompts:prompts,duels:duels,scores:results.scores||[0,0],status:results.status,timeout:results.timeout,timeoutPenalties:results.timeout_penalties||null};
   }
 
   var show=null, idx=0, playing=false, speed=1, timer=null;
@@ -242,7 +242,7 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
     stage.innerHTML =
       '<div class="introview">'+
       judgeCard()+
-      '<div class="prompt intro">A theory-of-mind duel: <b>'+esc(show.nameA)+'</b> vs <b>'+esc(show.nameB)+'</b> &mdash; '+show.duels.length+' challenge rounds after private judge interviews.</div>'+
+      '<div class="prompt intro">A theory-of-mind duel: <b>'+esc(show.nameA)+'</b> vs <b>'+esc(show.nameB)+'</b> &mdash; '+show.duels.length+' challenge duels after private judge interviews.</div>'+
       '</div>';
   }
 
@@ -262,11 +262,11 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
 
   function renderDuel(d){
     var authorName = d.author==='A'?show.nameA:show.nameB;
-    var roundNumber=currentDuelNumber();
+    var challengeNumber=currentDuelNumber();
     stage.innerHTML =
       '<div class="duelview">'+
       judgeCard()+
-      '<div class="questionbox"><div class="context">Round '+roundNumber+' &middot; question by '+esc(authorName)+'</div><div class="duelq">'+esc(d.question)+'</div></div>'+
+      '<div class="questionbox"><div class="context">Challenge '+challengeNumber+' &middot; question by '+esc(authorName)+'</div><div class="duelq">'+esc(d.question)+'</div></div>'+
       '<div class="cards">'+card('A',show.nameA,d.ansA)+card('B',show.nameB,d.ansB)+'</div>'+
       meter(d)+scoreboard()+
       '</div>';
@@ -305,11 +305,11 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
     });
   }
   function meter(d){
-    // Disqualified/no-contest rounds aren't judged, so start with honest static
+    // Disqualified/no-contest challenges aren't judged, so start with honest static
     // values instead of the "sampling logits" jitter and a 50/50 split.
     var dq = d && (d.noContest || d.missA || d.missB);
     var status = dq
-      ? '<span style="color:var(--dim)">not judged &mdash; disqualified round</span>'
+      ? '<span style="color:var(--dim)">not judged &mdash; disqualified challenge</span>'
       : '<span class="pip blink" style="background:var(--muted);margin-right:5px"></span>judge is reading &mdash; sampling logits&hellip;';
     var startA = dq ? (d.noContest ? 0 : (d.missA?0:100)) : 50;
     var startB = dq ? (d.noContest ? 0 : (d.missA?100:0)) : 50;
@@ -324,8 +324,8 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
       '<span class="sa">'+esc(show.nameA)+' <b id="sA">'+fmt(runningScore('A'))+'</b></span>'+
       '<span class="sb">'+esc(show.nameB)+' <b id="sB">'+fmt(runningScore('B'))+'</b></span></div>';
   }
-  // Score *entering* the current round: sum only rounds strictly before this one
-  // (duels[0..idx-2]). The current round's points are added live in reveal(), so
+  // Score *entering* the current challenge: sum only challenges strictly before this one
+  // (duels[0..idx-2]). The current challenge's points are added live in reveal(), so
   // they must NOT be in this baseline or they would be counted twice.
   function runningScore(side){
     var s=0, last=Math.max(0, Math.min(currentDuelNumber()-1, show.duels.length));
@@ -349,7 +349,7 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
   function clearJudge(){ judgeTimers.forEach(function(t){clearInterval(t);clearTimeout(t);}); judgeTimers=[]; }
   function judge(d){
     clearJudge();
-    // Disqualified rounds were never scored by the judge — no softmax was sampled.
+    // Disqualified challenges were never scored by the judge — no softmax was sampled.
     // Don't fake the "sampling logits" jitter; snap the bar straight to the hard
     // outcome instead of animating a verdict that never happened.
     if(d.noContest){
@@ -381,7 +381,7 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
       judgeTimers.push(st);
     }, anim(d.duplicate?300:800)));
   }
-  // Spell out how a side's round points are built: probability base, then either
+  // Spell out how a side's challenge points are built: probability base, then either
   // the +10 "beat the opponent" bonus or the -10 duplicate-answer penalty. A side
   // that didn't answer scores a flat 0 and is labelled as a non-answer.
   function pointsBreakdown(side,d){
@@ -429,13 +429,23 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
     clearJudge();
     var a=show.scores[0]||0, b=show.scores[1]||0;
     var winner = a===b?null:(a>b?show.nameA:show.nameB);
+    var timeoutNote='';
+    if(show.timeout){
+      var inactive=(show.timeoutPenalties&&show.timeoutPenalties.inactive_slots)||[];
+      if(inactive.length){
+        var names=inactive.map(function(slot){ return slot===0?show.nameA:show.nameB; }).join(', ');
+        timeoutNote='<div class="sub" style="color:var(--warn);margin-top:8px">&#9888; episode ended on the clock; inactive penalty applied to '+esc(names)+'</div>';
+      } else {
+        timeoutNote='<div class="sub" style="color:var(--warn);margin-top:8px">&#9888; episode ended on the clock</div>';
+      }
+    }
     stage.innerHTML=
       '<div class="finalview">'+
       judgeCard()+
       '<div class="final">'+
       (winner?'<h2><span class="crown">&#128081;</span> '+esc(winner)+' wins</h2>':'<h2>It’s a tie</h2>')+
       '<div class="sub">'+esc(show.nameA)+' '+fmt(a)+' &middot; '+esc(show.nameB)+' '+fmt(b)+'</div>'+
-      (show.timeout?'<div class="sub" style="color:var(--warn);margin-top:8px">&#9888; round ended on the clock</div>':'')+
+      timeoutNote+
     '</div></div>';
   }
 
@@ -478,7 +488,6 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
     if(msg.type==='error'){ stage.innerHTML='<div class="err">'+esc(msg.error)+'</div>'; return; }
     if(msg.type==='replay'){
       show=buildShow(msg.replay);
-      if(!show.duels.length){ stage.innerHTML='<div class="err">This replay has no scored rounds to show.</div>'; return; }
       idx=0; render();
       startPlayback();   // autoplay once the replay loads
     }

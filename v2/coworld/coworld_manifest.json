@@ -242,6 +242,33 @@
         "timeout": {
           "type": "boolean"
         },
+        "timeout_penalties": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "phase": {
+              "type": "string"
+            },
+            "inactive_slots": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "neutral_slots": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "penalty": {
+              "type": "number"
+            }
+          }
+        },
         "duration_seconds": {
           "type": "number"
         }
@@ -272,7 +299,7 @@
     "docs": {
       "readme": {
         "type": "text",
-        "value": "# Cue-n-Woo\n\nA two-player theory-of-mind game. A hidden-style judge (a steered FLAS/Gemma model) answers questions in a secret persona. Each player privately interviews the judge, then writes challenge questions plus their own answers. Players also answer the opponent's challenge questions. The server scores how well each answer matches the judge's style, and the player who better predicts the judge wins.\n\n## Flow\n\n1. `private_questions`: each player asks the judge up to three private questions.\n2. `proposals`: each player submits three challenge questions, each with their own answer.\n3. `answers`: each player answers the opponent's three challenge questions. An empty answer is a permitted decline and scores 0; non-empty answers need at least three non-space characters.\n4. `reveal`: the hidden concept is revealed and the round is scored.\n\nThe hidden concept is server-private during play."
+        "value": "# Cue-n-Woo\n\nA two-player theory-of-mind game. A hidden-style judge (a steered FLAS/Gemma model) answers questions in a secret persona. Each player privately interviews the judge, then writes challenge questions plus their own answers. Players also answer the opponent's challenge questions. The server scores how well each answer matches the judge's style, and the player who better predicts the judge wins.\n\n## Flow\n\n1. `private_questions`: each player asks the judge up to three private questions.\n2. `proposals`: each player submits three challenge questions, each with their own answer.\n3. `answers`: each player answers the opponent's three challenge questions. An empty answer is a permitted decline and scores 0; non-empty answers need at least three non-space characters.\n4. `reveal`: the hidden concept is revealed and the episode is scored.\n\nThe hidden concept is server-private during play."
       },
       "pages": [
         {

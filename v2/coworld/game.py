@@ -30,6 +30,7 @@ GAME_PORT = int(os.environ.get("COGAME_PORT", "8080"))
 SCORE_SCALE = 100.0
 BEAT_BONUS_POINTS = 10.0
 DUPLICATE_ANSWER_PENALTY_POINTS = 10.0
+INACTIVE_TIMEOUT_PENALTY = -100.0
 
 
 def read_data(uri: str) -> bytes:
@@ -562,10 +563,15 @@ async def finalize(timeout: bool) -> None:
     async with state.lock:
         if state.done:
             return
+        timeout_phase = state.phase()
         players = json.loads(json.dumps(state.players))
         hidden_concept = dict(state.hidden_concept)
         state.done = True
-    scores, rows = await score_round(players, hidden_concept)
+    timeout_penalties = None
+    if timeout and timeout_phase != "ready_to_score":
+        scores, rows, timeout_penalties = timeout_scores(players, timeout_phase)
+    else:
+        scores, rows = await score_round(players, hidden_concept)
     results = {
         "scores": scores,
         "status": "timeout" if timeout else "complete",
@@ -573,6 +579,8 @@ async def finalize(timeout: bool) -> None:
         "rows": rows,
         "duration_seconds": round(time.time() - state.started_at, 3),
     }
+    if timeout_penalties is not None:
+        results["timeout_penalties"] = timeout_penalties
     if CONFIG.get("include_concept_in_results", False):
         results["hidden_concept"] = hidden_concept
     async with state.lock:
@@ -628,6 +636,45 @@ async def score_round(players: list[dict[str, Any]], concept: dict[str, Any]) ->
     return points, rows
 
 
+def timeout_scores(players: list[dict[str, Any]], phase: str) -> tuple[list[float], list[dict[str, Any]], dict[str, Any]]:
+    inactive_slots = timeout_inactive_slots(players, phase)
+    scores = [
+        INACTIVE_TIMEOUT_PENALTY if slot in inactive_slots else 0.0
+        for slot in range(len(players))
+    ]
+    return scores, [], {
+        "reason": "incomplete_timeout",
+        "phase": phase,
+        "inactive_slots": inactive_slots,
+        "neutral_slots": [slot for slot in range(len(players)) if slot not in inactive_slots],
+        "penalty": INACTIVE_TIMEOUT_PENALTY,
+    }
+
+
+def timeout_inactive_slots(players: list[dict[str, Any]], phase: str) -> list[int]:
+    private_expected = int(CONFIG.get("private_questions_per_player", 3))
+    challenge_expected = int(CONFIG.get("challenge_questions_per_player", 3))
+    if phase == "private_questions":
+        return [
+            slot
+            for slot, player in enumerate(players)
+            if len(player.get("judge", [])) < private_expected
+        ]
+    if phase == "proposals":
+        return [
+            slot
+            for slot, player in enumerate(players)
+            if len(player.get("proposals", [])) < challenge_expected
+        ]
+    if phase == "answers":
+        return [
+            slot
+            for slot, player in enumerate(players)
+            if len(player.get("answers", [])) < challenge_expected
+        ]
+    return []
+
+
 def scoring_context() -> str:
     return "You will be presented with a question/challenge and two possible answers. Please select one of the two answers."
 
@@ -638,10 +685,10 @@ def is_non_answer(answer: str) -> bool:
 
 
 def non_answer_score(secret_missing: bool, opponent_missing: bool) -> dict[str, Any]:
-    """Score a round where at least one side declined to answer.
+    """Score an answer matchup where at least one side declined to answer.
 
     A non-answer is worth 0. A real answer facing a non-answer wins uncontested
-    (full base + beat bonus). If both sides declined, the round is a no-contest
+    (full base + beat bonus). If both sides declined, the matchup is a no-contest
     and both score 0.
     """
     secret_real = not secret_missing
