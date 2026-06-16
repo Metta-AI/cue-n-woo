@@ -28,7 +28,7 @@ The server sends JSON observations:
 }
 ```
 
-`me.judge` is the player's private transcript with the steered judge (question/answer turns).
+`me.judge` is the player's private transcript with the steered judge (question/answer turns). Player observations may include the player's accumulated transcript and submitted actions so clients can display them. During `answers`, `opponent_questions` includes the opponent's challenge questions but not the opponent's hidden answers.
 
 The hidden steering concept is not sent to players while the game is active.
 

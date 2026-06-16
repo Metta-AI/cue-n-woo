@@ -22,9 +22,12 @@ concept. Existing `list`, `specific`, and `random` concept sources are still sup
 
 Policy debugging notes:
 
-- `docs/llm_player_observation.md` documents the exact Bedrock Converse request and the state the LLM player sees.
-- Judge responses are capped by `judge_max_tokens`; the Claude policy prompt explicitly tells the model that prior
-  judge answers may be truncated at that output-token limit.
+- `docs/llm_player_observation.md` documents the optional Bedrock-backed player harness and the state it sees. It is
+  not part of the game server or judge path.
+- Judge responses are capped by `judge_max_tokens`.
+- Player observations and replay output can include accumulated private turns and submitted actions for display.
+- Cue-n-Woo worker calls are kept independent: judge generation receives only the current private question, and scoring
+  receives only the current challenge question plus candidate answers.
 
 Commissioner notes:
 

@@ -250,9 +250,10 @@ class EpisodeState:
         return max(0, int(self.deadline - time.time()))
 
     def view(self, slot: int | None = None, *, global_view: bool = False) -> dict[str, Any]:
+        phase = self.phase()
         payload: dict[str, Any] = {
             "type": "state",
-            "phase": self.phase(),
+            "phase": phase,
             "remaining_seconds": self.remaining_seconds(),
             "limits": {
                 "max_answer_tokens": int(CONFIG.get("max_answer_tokens", 12)),
@@ -603,7 +604,7 @@ async def finalize(timeout: bool) -> None:
 async def score_round(players: list[dict[str, Any]], concept: dict[str, Any]) -> tuple[list[float], list[dict[str, Any]]]:
     rows = []
     points = [0.0 for _ in players]
-    context = scoring_context(players)
+    context = scoring_context()
     # Each player's challenge questions are scored against the one opponent in a
     # two-player game. "submitter"/"owner" are slot indices; "secret" is the
     # author's own answer, "opponent" is the other slot's answer to that question.
@@ -627,22 +628,8 @@ async def score_round(players: list[dict[str, Any]], concept: dict[str, Any]) ->
     return points, rows
 
 
-def scoring_context(players: list[dict[str, Any]]) -> str:
-    def transcript(section: int, player: dict[str, Any]) -> str:
-        turns = []
-        for idx, turn in enumerate(player["judge"]):
-            turns.append(
-                f"Record {section}.{idx + 1} question: {model_safe_text(turn['question'])}\n"
-                f"Record {section}.{idx + 1} answer: {model_safe_text(turn['answer'])}"
-            )
-        return "\n\n".join(turns)
-
-    public_questions = []
-    for slot, player in enumerate(players):
-        for idx, proposal in enumerate(player["proposals"]):
-            public_questions.append(f"Question group {slot + 1}.{idx + 1}: {model_safe_text(proposal['question'])}")
-    sections = [transcript(slot + 1, player) for slot, player in enumerate(players)]
-    return "\n\n".join(["Reference material:", *sections, "Question list:", "\n".join(public_questions)])
+def scoring_context() -> str:
+    return "You will be presented with a question/challenge and two possible answers. Please select one of the two answers."
 
 
 def is_non_answer(answer: str) -> bool:
