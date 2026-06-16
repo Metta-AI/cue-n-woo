@@ -755,8 +755,10 @@ async def answer_score(context: str, question: str, secret_answer: str, opponent
             "canonical_answer": conflict,
             "orderings": [],
         }
-    first = await delta_option_selection_probs(context, question, secret_answer, opponent_answer, concept, reverse=False)
-    second = await delta_option_selection_probs(context, question, secret_answer, opponent_answer, concept, reverse=True)
+    first, second = await asyncio.gather(
+        delta_option_selection_probs(context, question, secret_answer, opponent_answer, concept, reverse=False),
+        delta_option_selection_probs(context, question, secret_answer, opponent_answer, concept, reverse=True),
+    )
     first_margin = first["secret_probability"] - first["opponent_probability"]
     second_margin = second["secret_probability"] - second["opponent_probability"]
     average_secret_probability = (first["secret_probability"] + second["secret_probability"]) / 2
