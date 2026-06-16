@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import random
 import re
@@ -754,8 +755,10 @@ async def answer_score(context: str, question: str, secret_answer: str, opponent
             "canonical_answer": conflict,
             "orderings": [],
         }
-    first = await option_selection_probs(context, question, secret_answer, opponent_answer, concept, reverse=False)
-    second = await option_selection_probs(context, question, secret_answer, opponent_answer, concept, reverse=True)
+    first, second = await asyncio.gather(
+        delta_option_selection_probs(context, question, secret_answer, opponent_answer, concept, reverse=False),
+        delta_option_selection_probs(context, question, secret_answer, opponent_answer, concept, reverse=True),
+    )
     first_margin = first["secret_probability"] - first["opponent_probability"]
     second_margin = second["secret_probability"] - second["opponent_probability"]
     average_secret_probability = (first["secret_probability"] + second["secret_probability"]) / 2
@@ -797,6 +800,10 @@ def normalize_answer_for_conflict(answer: str) -> str:
 
 
 async def option_selection_probs(context: str, question: str, secret_answer: str, opponent_answer: str, concept: dict[str, Any], reverse: bool) -> dict[str, Any]:
+    return await delta_option_selection_probs(context, question, secret_answer, opponent_answer, concept, reverse)
+
+
+async def delta_option_selection_probs(context: str, question: str, secret_answer: str, opponent_answer: str, concept: dict[str, Any], reverse: bool) -> dict[str, Any]:
     choices = [opponent_answer, secret_answer] if reverse else [secret_answer, opponent_answer]
     prompt = (
         f"{context}\n\n"
@@ -810,6 +817,7 @@ async def option_selection_probs(context: str, question: str, secret_answer: str
         {
             "requests": [
                 {
+                    "id": "steered",
                     "prompt": prompt,
                     "concept": concept_for_worker(concept),
                     "flas": {
@@ -818,16 +826,54 @@ async def option_selection_probs(context: str, question: str, secret_answer: str
                     },
                     "choices": [model_safe_text(choice) for choice in choices],
                     "ordering": {"mode": "given_order"},
-                }
+                },
+                {
+                    "id": "unsteered",
+                    "prompt": prompt,
+                    "concept": concept_for_worker(concept),
+                    "flas": {
+                        "flowtime": float(CONFIG.get("unsteered_flas_flowtime", 0.0)),
+                        "steps": int(CONFIG.get("flas_steps", 3)),
+                    },
+                    "choices": [model_safe_text(choice) for choice in choices],
+                    "ordering": {"mode": "given_order"},
+                },
             ]
         },
     )
-    probs = response["results"][0]["probabilities"]
+    by_id = {result.get("id"): result["probabilities"] for result in response["results"]}
+    steered = by_id["steered"]
+    unsteered = by_id["unsteered"]
+    steered_secret = steered[1] if reverse else steered[0]
+    steered_opponent = steered[0] if reverse else steered[1]
+    unsteered_secret = unsteered[1] if reverse else unsteered[0]
+    unsteered_opponent = unsteered[0] if reverse else unsteered[1]
+    delta_log_odds = log_odds(steered_secret, steered_opponent) - log_odds(unsteered_secret, unsteered_opponent)
+    secret_probability = sigmoid(delta_log_odds)
+    opponent_probability = 1.0 - secret_probability
     return {
         "order": "opponent_first" if reverse else "secret_first",
-        "secret_probability": probs[1] if reverse else probs[0],
-        "opponent_probability": probs[0] if reverse else probs[1],
+        "secret_probability": secret_probability,
+        "opponent_probability": opponent_probability,
+        "delta_log_odds": delta_log_odds,
+        "steered_secret_probability": steered_secret,
+        "steered_opponent_probability": steered_opponent,
+        "unsteered_secret_probability": unsteered_secret,
+        "unsteered_opponent_probability": unsteered_opponent,
     }
+
+
+def log_odds(first: float, second: float) -> float:
+    eps = 1e-12
+    return math.log(max(eps, first)) - math.log(max(eps, second))
+
+
+def sigmoid(value: float) -> float:
+    if value >= 0:
+        z = math.exp(-value)
+        return 1.0 / (1.0 + z)
+    z = math.exp(value)
+    return z / (1.0 + z)
 
 
 def public_config(config: dict[str, Any]) -> dict[str, Any]:
