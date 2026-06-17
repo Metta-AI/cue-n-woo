@@ -6,11 +6,12 @@ import json
 import os
 import random
 import re
+import sys
 import time
 import zlib
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
@@ -36,7 +37,16 @@ DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-6"
 DEFAULT_BEDROCK_REGION = "us-east-1"
 BEDROCK_ATTEMPTS = 5
 DEFAULT_BEDROCK_CONNECT_TIMEOUT_SECONDS = 5.0
-DEFAULT_BEDROCK_READ_TIMEOUT_SECONDS = 60.0
+DEFAULT_BEDROCK_READ_TIMEOUT_SECONDS = 120.0
+DEFAULT_BEDROCK_MAX_BACKOFF_SECONDS = 15.0
+TRANSIENT_BEDROCK_ERROR_CODES = {
+    "InternalServerException",
+    "ModelErrorException",
+    "ModelTimeoutException",
+    "ServiceUnavailableException",
+    "ThrottlingException",
+    "TooManyRequestsException",
+}
 CHOICE_TOOL = {
     "toolSpec": {
         "name": "choose_answer",
@@ -166,7 +176,7 @@ def positive_float_config(config: dict[str, Any], name: str, default: float) -> 
 
 
 class BedrockRefereeClient:
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: dict[str, Any], remaining_seconds: Callable[[], float] | None = None):
         self.model_id = (
             config.get("bedrock_model_id")
             or os.environ.get("BEDROCK_CLAUDE_MODEL_ID")
@@ -186,6 +196,10 @@ class BedrockRefereeClient:
         self.read_timeout_seconds = positive_float_config(
             config, "bedrock_read_timeout_seconds", DEFAULT_BEDROCK_READ_TIMEOUT_SECONDS
         )
+        self.max_backoff_seconds = positive_float_config(
+            config, "bedrock_max_backoff_seconds", DEFAULT_BEDROCK_MAX_BACKOFF_SECONDS
+        )
+        self.remaining_seconds = remaining_seconds
         self.client = None
 
     def generate_judge_answer(self, question: str, concept: dict[str, Any]) -> str:
@@ -263,25 +277,45 @@ class BedrockRefereeClient:
         }
         if tool_config is not None:
             kwargs["toolConfig"] = tool_config
-        for attempt in range(BEDROCK_ATTEMPTS):
+        attempt = 0
+        last_error: BaseException | None = None
+        while True:
+            remaining = self._remaining_seconds()
+            if remaining is not None and remaining <= 0:
+                raise TimeoutError("Bedrock referee retry budget exhausted at the game deadline.") from last_error
             try:
                 return self._client().converse(**kwargs)
             except ClientError as exc:
+                last_error = exc
                 code = exc.response.get("Error", {}).get("Code", "")
-                if (
-                    code
-                    not in {
-                        "ServiceUnavailableException",
-                        "ThrottlingException",
-                        "TooManyRequestsException",
-                    }
-                    or attempt == BEDROCK_ATTEMPTS - 1
-                ):
+                if code not in TRANSIENT_BEDROCK_ERROR_CODES:
                     raise
-                time.sleep(2**attempt)
-            except BotoCoreError:
-                raise
+            except BotoCoreError as exc:
+                last_error = exc
+            attempt += 1
+            if self.remaining_seconds is None and attempt >= BEDROCK_ATTEMPTS:
+                raise RuntimeError("Bedrock retry attempts exhausted.") from last_error
+            self._sleep_before_retry(attempt, remaining, last_error)
         raise RuntimeError("Bedrock retry loop exited unexpectedly.")
+
+    def _remaining_seconds(self) -> float | None:
+        if self.remaining_seconds is None:
+            return None
+        return max(0.0, float(self.remaining_seconds()))
+
+    def _sleep_before_retry(self, attempt: int, remaining: float | None, exc: BaseException | None) -> None:
+        backoff = min(float(2 ** min(attempt - 1, 6)), self.max_backoff_seconds)
+        if remaining is not None:
+            backoff = min(backoff, max(0.0, remaining))
+        if backoff <= 0:
+            raise TimeoutError("Bedrock referee retry budget exhausted at the game deadline.") from exc
+        print(
+            f"Retrying Bedrock referee call after {type(exc).__name__ if exc else 'unknown error'} "
+            f"(attempt {attempt + 1}, sleeping {backoff:.1f}s).",
+            file=sys.stderr,
+            flush=True,
+        )
+        time.sleep(backoff)
 
 
 def empty_player() -> dict[str, Any]:
@@ -311,7 +345,7 @@ class EpisodeState:
         self.deadline = self.started_at + float(CONFIG.get("round_timeout_seconds", 600))
         self.done = False
         self.hidden_concept = select_concept(CONFIG)
-        self.referee = BedrockRefereeClient(CONFIG)
+        self.referee = BedrockRefereeClient(CONFIG, remaining_seconds=self.remaining_time_seconds)
         self.lock = asyncio.Lock()
 
     def phase(self) -> str:
@@ -327,6 +361,9 @@ class EpisodeState:
 
     def remaining_seconds(self) -> int:
         return max(0, int(self.deadline - time.time()))
+
+    def remaining_time_seconds(self) -> float:
+        return max(0.0, self.deadline - time.time())
 
     def view(self, slot: int | None = None, *, global_view: bool = False) -> dict[str, Any]:
         phase = self.phase()
