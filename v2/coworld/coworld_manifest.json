@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/Metta-AI/coworld/main/src/coworld/coworld_manifest_schema.json",
   "game": {
     "name": "cue_n_woo",
-    "version": "0.2.0",
+    "version": "0.2.28",
     "description": "Two-player theory-of-mind game backed by Bedrock Claude Sonnet.",
     "owner": "metta-ai",
     "config_schema": {
@@ -140,7 +140,13 @@
           "type": "number",
           "minimum": 1,
           "maximum": 900,
-          "default": 60
+          "default": 120
+        },
+        "bedrock_max_backoff_seconds": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 120,
+          "default": 15
         },
         "concept_type": {
           "description": "axis_combo samples one option each from several concept-axis JSON files and joins them; list selects from data/concepts.json; specific uses specific_concept; random uses a seeded private style label.",
@@ -256,7 +262,7 @@
     },
     "runnable": {
       "type": "game",
-      "image": "coworld-cue-n-woo:coworld-ab5c2625e4be",
+      "image": "coworld-cue-n-woo:coworld-3609eabaecae",
       "run": [
         "python",
         "-m",
@@ -302,7 +308,7 @@
   "player": [
     {
       "type": "player",
-      "image": "coworld-cue-n-woo:coworld-ab5c2625e4be",
+      "image": "coworld-cue-n-woo:coworld-3609eabaecae",
       "run": [
         "python",
         "-m",
@@ -315,7 +321,7 @@
     },
     {
       "type": "player",
-      "image": "coworld-cue-n-woo:coworld-ab5c2625e4be",
+      "image": "coworld-cue-n-woo:coworld-3609eabaecae",
       "run": [
         "python",
         "-m",
@@ -328,7 +334,7 @@
     },
     {
       "type": "player",
-      "image": "coworld-cue-n-woo:coworld-ab5c2625e4be",
+      "image": "coworld-cue-n-woo:coworld-3609eabaecae",
       "run": [
         "python",
         "-m",
@@ -344,7 +350,7 @@
   "commissioner": [
     {
       "type": "commissioner",
-      "image": "ghcr.io/metta-ai/commissioners-cue-n-woo@sha256:4b61b433d6881de91821986be2b43fb1fad77cf1bef15eac8ff84d556e387fab",
+      "image": "public.ecr.aws/q5f4m8t9/cogames@sha256:d67f5692ac9c68fb95c2cfed4760400311de83947f213fdf319145a66bb5dd53",
       "env": {},
       "id": "cue-n-woo-commissioner",
       "name": "Cue n Woo Commissioner",

@@ -11,6 +11,7 @@ import asyncio
 import json
 
 from botocore.config import Config
+from botocore.exceptions import ReadTimeoutError
 
 import v2.coworld.game as game
 from v2.coworld.harness import simple_token_count, truncate_to_token_limit
@@ -63,6 +64,28 @@ def test_bedrock_client_uses_bounded_timeouts(monkeypatch) -> None:
     assert captured["config"].connect_timeout == 3.0
     assert captured["config"].read_timeout == 7.0
     assert captured["config"].retries == {"max_attempts": 1}
+
+
+def test_bedrock_referee_retries_transport_timeout_until_success(monkeypatch) -> None:
+    calls = []
+    sleeps = []
+
+    class FakeClient:
+        def converse(self, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                raise ReadTimeoutError(endpoint_url="https://bedrock-runtime.test")
+            return {"ok": True}
+
+    client = game.BedrockRefereeClient({}, remaining_seconds=lambda: 30.0)
+    client.client = FakeClient()
+    monkeypatch.setattr(game.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    result = client._converse_with_retry(messages=[], inference_config={})
+
+    assert result == {"ok": True}
+    assert len(calls) == 2
+    assert sleeps == [1.0]
 
 
 def test_token_budget_uses_four_character_estimate() -> None:
