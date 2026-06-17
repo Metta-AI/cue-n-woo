@@ -306,15 +306,15 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
   }
   function meter(d){
     // Disqualified/no-contest challenges aren't judged, so start with honest static
-    // values instead of the "sampling logits" jitter and a 50/50 split.
+    // values instead of the "sampling Sonnet" jitter and a 50/50 split.
     var dq = d && (d.noContest || d.missA || d.missB);
     var status = dq
       ? '<span style="color:var(--dim)">not judged &mdash; disqualified challenge</span>'
-      : '<span class="pip blink" style="background:var(--muted);margin-right:5px"></span>judge is reading &mdash; sampling logits&hellip;';
+      : '<span class="pip blink" style="background:var(--muted);margin-right:5px"></span>judge is reading &mdash; sampling Sonnet&hellip;';
     var startA = dq ? (d.noContest ? 0 : (d.missA?0:100)) : 50;
     var startB = dq ? (d.noContest ? 0 : (d.missA?100:0)) : 50;
     return '<div class="meter">'+
-      '<div class="mstatus"><span id="mstat">'+status+'</span><span class="delta" id="delta">&Delta;logit —</span></div>'+
+      '<div class="mstatus"><span id="mstat">'+status+'</span><span class="delta" id="delta">sample margin —</span></div>'+
       '<div class="pcts"><span class="pa" id="pctA">'+startA+'%</span><span class="pb" id="pctB">'+startB+'%</span></div>'+
       '<div class="bar"><div class="barA" id="barA" style="width:'+Math.max(2,Math.min(98,startA))+'%"></div><div class="barB" id="barB"></div></div>'+
       '<div class="names"><span>'+esc(show.nameA)+'</span><span>'+esc(show.nameB)+'</span></div></div>';
@@ -342,22 +342,22 @@ a.raw{color:var(--dim);font-size:17px;text-decoration:none}
     barA.style.width=w.toFixed(1)+'%';
     document.getElementById('pctA').textContent=Math.round(p)+'%';
     document.getElementById('pctB').textContent=(100-Math.round(p))+'%';
-    var d=Math.log(w/(100-w)); document.getElementById('delta').textContent='Δlogit '+(d>=0?'+':'')+d.toFixed(2);
+    var d=p-50; document.getElementById('delta').textContent='sample margin '+(d>=0?'+':'')+d.toFixed(0)+' pts';
   }
 
   var judgeTimers=[];
   function clearJudge(){ judgeTimers.forEach(function(t){clearInterval(t);clearTimeout(t);}); judgeTimers=[]; }
   function judge(d){
     clearJudge();
-    // Disqualified challenges were never scored by the judge — no softmax was sampled.
-    // Don't fake the "sampling logits" jitter; snap the bar straight to the hard
+    // Disqualified challenges were never scored by the judge.
+    // Don't fake the "sampling Sonnet" jitter; snap the bar straight to the hard
     // outcome instead of animating a verdict that never happened.
     if(d.noContest){
       // Neither side answered: not a probability split at all. Both read 0%.
       var pA=document.getElementById('pctA'), pB=document.getElementById('pctB');
       if(pA) pA.textContent='0%'; if(pB) pB.textContent='0%';
       var bA=document.getElementById('barA'); if(bA) bA.style.width='0%';
-      var dl=document.getElementById('delta'); if(dl) dl.textContent='Δlogit —';
+      var dl=document.getElementById('delta'); if(dl) dl.textContent='sample margin —';
       reveal(d,50);
       return;
     }

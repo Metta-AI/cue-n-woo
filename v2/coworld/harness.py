@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from math import ceil
 from typing import Any
 
 
 @dataclass(frozen=True)
 class HarnessConfig:
     max_answer_tokens: int = 12
-    max_question_tokens: int = 1024
+    max_question_tokens: int = 256
 
 
 ANSWER_TOKEN_PATTERN = re.compile(r"^[!-~]+$")
@@ -24,7 +25,7 @@ def public_hints() -> dict[str, Any]:
     return {
         "objective": "Learn how the judge tends to answer, then ask questions where the judge's likely answer is not obvious to the opponent.",
         "phase_private_questions": "Ask private questions that get to know the judge as an answerer: preferences, associations, voice, habits, examples, and how the judge reacts to open-ended prompts.",
-        "phase_proposals": "Submit exactly three challenge questions with answers supported by your private transcript. Avoid factual questions with one obvious answer because the opponent can guess those and they usually score nothing.",
+        "phase_proposals": "Submit exactly three fresh challenge questions with answers. The proposal phase does not include the private transcript.",
         "phase_answers": "Answer opponent questions from the public question text and your private transcript.",
     }
 
@@ -34,10 +35,10 @@ def game_rules_for_policy() -> str:
         "You are playing a two-player theory-of-mind steering game. "
         "The judge is a model with a hidden steering style, but you do not know that style directly. "
         "Your job is to get to know the judge from your private conversation: what the judge prefers, what associations the judge makes, what tone or persona the judge uses, and how the judge answers open-ended prompts. "
-        "You score by proposing questions where your private transcript helps you predict the judge's answer better than the opponent can from the public question alone. "
+        "You score by proposing challenge questions and later answering the opponent's challenge questions. "
         "Do not try to extract a single hidden topic or write trivia questions. Factual questions with one obvious correct answer are bad challenge questions because the opponent can usually guess the same answer and you will get little or no score. "
         "In phase private_questions, ask the judge useful private questions that reveal answer patterns, preferences, associations, voice, or habits. "
-        "In phase proposals, submit exactly three challenge questions plus answers that are grounded in your private transcript but not obvious without it. "
+        "In phase proposals, submit exactly three fresh challenge questions plus answers without relying on previous private conversation turns. "
         "In phase answers, answer each opponent question using your private transcript and public question text. "
         "Do not mention or assume access to the hidden concept. "
         "Answers must use printable keyboard characters only, spaces as the only whitespace, no repeated spaces, and must fit the token limit."
@@ -45,7 +46,12 @@ def game_rules_for_policy() -> str:
 
 
 def simple_token_count(text: str) -> int:
-    return len(re.findall(r"\S+", text.strip()))
+    stripped = text.strip()
+    if not stripped:
+        return 0
+    # We do not have the provider tokenizer in the game container; use a
+    # conservative character estimate for the same per-item budgets.
+    return ceil(len(stripped) / 4)
 
 
 def within_token_limit(text: str, max_tokens: int) -> bool:
@@ -53,7 +59,7 @@ def within_token_limit(text: str, max_tokens: int) -> bool:
 
 
 def truncate_to_token_limit(text: str, max_tokens: int) -> str:
-    return " ".join(re.findall(r"\S+", text.strip())[:max_tokens])
+    return text.strip()[: max(0, max_tokens * 4)].rstrip()
 
 
 def validate_answer_limit(answer: str, max_tokens: int) -> None:

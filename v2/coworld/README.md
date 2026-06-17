@@ -12,36 +12,28 @@ The Coworld game runnable:
 - serves `GET /client/global` and `/global`;
 - writes results to `COGAME_RESULTS_URI`;
 - writes replay JSON to `COGAME_SAVE_REPLAY_URI`;
-- queries the LLM worker through `llm_worker_url`, signing requests for tournament priority when a key is available
-  (see `docs/worker_auth.md`).
+- calls Bedrock Claude Sonnet directly for hidden-judge answers and scoring.
 
-The game config controls token limits, temperature, concept source, FLAS flowtime/steps, and a hard round timer. The
-default round timer is 600 seconds. The default concept source is `axis_combo`: it samples several JSON axes from
+The game config controls token limits, temperature, Bedrock model/region, concept source, scoring sample count, and a hard round timer. The
+default question limit is 256 simple tokens. When the game cannot use a provider tokenizer, per-item limits are enforced
+with a 4-character token estimate. The default round timer is 600 seconds. The default concept source is `axis_combo`: it samples several JSON axes from
 `data/concept_axes/`, chooses one option from each sampled axis, and joins those phrases into the hidden steering
 concept. Existing `list`, `specific`, and `random` concept sources are still supported.
 
 Policy debugging notes:
 
-- `docs/llm_player_observation.md` documents the optional Bedrock-backed player harness and the state it sees. It is
-  not part of the game server or judge path.
-- Judge responses are capped by `judge_max_tokens`.
-- Player observations and replay output can include accumulated private turns and submitted actions for display.
-- Cue-n-Woo worker calls are kept independent: judge generation receives only the current private question, and scoring
-  receives only the current challenge question plus candidate answers.
-
-Commissioner notes:
-
-- Cue n Woo league scheduling is handled by `ghcr.io/metta-ai/commissioners-cue-n-woo`, built from the shared
-  `Metta-AI/commissioners` ruleset strategy commissioner. Keep tournament scheduling changes there rather than adding
-  another in-repo commissioner server.
+- `docs/llm_player_observation.md` documents the exact Bedrock Converse request and the state the LLM player sees.
+- Judge responses are capped by `judge_max_tokens`; the Claude policy prompt explicitly tells the model that prior
+  judge answers may be truncated at that output-token limit.
 
 Scoring notes:
 
 - If two submitted answers are exact duplicates, or if one answer is a full string prefix of the other after whitespace
   and case normalization, the game treats them as the same conflicting answer. The scorer keeps the shortest conflicting
-  answer as `canonical_answer` and skips the worker choice call. In the current two-player game, both matching answers
+  answer as `canonical_answer` and skips the Sonnet choice samples. In the current two-player game, both matching answers
   receive 40 points: 50 shared-probability base points minus a 10 point duplicate-answer penalty.
-- Otherwise, each distinct answer on a challenge is scored symmetrically: `100 * average_probability_of_that_answer`,
+- Otherwise, each distinct answer on a challenge is scored from `scoring_samples` forced-choice Bedrock Claude Sonnet
+  calls, defaulting to 9 samples: `100 * sampled_probability_of_that_answer`,
   plus a 10 point bonus for each distinct competing answer it beats. In the current two-player game that is either 0 or
   10 bonus points per answer. The player score is the sum of the points earned by that player's answers, regardless of
   who submitted the question.
