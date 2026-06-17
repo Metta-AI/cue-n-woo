@@ -2,8 +2,8 @@
   "$schema": "https://raw.githubusercontent.com/Metta-AI/coworld/main/src/coworld/coworld_manifest_schema.json",
   "game": {
     "name": "cue_n_woo",
-    "version": "0.2.16",
-    "description": "Two-player theory-of-mind game backed by a local FLAS/Gemma worker.",
+    "version": "0.2.0",
+    "description": "Two-player theory-of-mind game backed by Bedrock Claude Sonnet.",
     "owner": "metta-ai",
     "config_schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -50,17 +50,18 @@
             }
           }
         },
-        "llm_worker_url": {
+        "bedrock_model_id": {
+          "description": "Bedrock modelId for the hidden judge and scorer. BEDROCK_CLAUDE_MODEL_ID or BEDROCK_MODEL can override this at runtime.",
           "type": "string",
-          "default": "https://cue-n-woo-fleet.softmax-research.net"
+          "default": "us.anthropic.claude-sonnet-4-6"
         },
-        "require_signing": {
-          "description": "If true, the game fails to start unless it can load the worker signing key (so tournament priority is guaranteed). If false, a missing or unreadable key degrades to unsigned normal-priority requests. Tournaments should set true.",
-          "type": "boolean",
-          "default": false
+        "bedrock_region": {
+          "description": "AWS region for Bedrock Runtime calls.",
+          "type": "string",
+          "default": "us-east-1"
         },
-        "stub_worker": {
-          "description": "If true, the game returns deterministic canned worker responses instead of calling the LLM worker. Used by certification so the smoke test runs offline with no GPU/worker dependency. Never set in real play.",
+        "stub_bedrock": {
+          "description": "If true, the game returns deterministic canned Bedrock responses. Used by certification so the smoke test runs offline with no AWS dependency. Never set in real play.",
           "type": "boolean",
           "default": false
         },
@@ -87,8 +88,8 @@
           "description": "Simple whitespace-token limit for submitted questions/prompts. Questions may use normal prompt whitespace.",
           "type": "integer",
           "minimum": 1,
-          "maximum": 2048,
-          "default": 1024
+          "maximum": 256,
+          "default": 256
         },
         "max_answer_tokens": {
           "description": "Simple whitespace-token limit for player answers. Answers may contain printable keyboard characters and single spaces only.",
@@ -96,13 +97,6 @@
           "minimum": 1,
           "maximum": 64,
           "default": 12
-        },
-        "max_prompt_tokens": {
-          "description": "Maximum tokenized prompt length sent to the LLM worker.",
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2048,
-          "default": 1024
         },
         "judge_max_tokens": {
           "type": "integer",
@@ -122,8 +116,34 @@
           "maximum": 2,
           "default": 0.7
         },
+        "scoring_temperature": {
+          "description": "Bedrock temperature used for each forced-choice scoring sample.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2,
+          "default": 0.7
+        },
+        "scoring_samples": {
+          "description": "Number of Claude forced-choice samples used to estimate answer probabilities.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99,
+          "default": 9
+        },
+        "bedrock_connect_timeout_seconds": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 60,
+          "default": 5
+        },
+        "bedrock_read_timeout_seconds": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 900,
+          "default": 60
+        },
         "concept_type": {
-          "description": "axis_combo samples one option each from several concept-axis JSON files and joins them; list selects from data/concepts.json; specific uses specific_concept; random uses a seeded random FLAS vector.",
+          "description": "axis_combo samples one option each from several concept-axis JSON files and joins them; list selects from data/concepts.json; specific uses specific_concept; random uses a seeded private style label.",
           "type": "string",
           "enum": [
             "axis_combo",
@@ -189,19 +209,6 @@
           ],
           "default": "unit_rms"
         },
-        "flas_flowtime": {
-          "description": "FLAS steering strength/flowtime.",
-          "type": "number",
-          "minimum": 0,
-          "maximum": 10,
-          "default": 2
-        },
-        "flas_steps": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 8,
-          "default": 3
-        },
         "reveal_concept_to_clients": {
           "description": "Whether final player/global state includes the hidden concept. Defaults false.",
           "type": "boolean",
@@ -242,33 +249,6 @@
         "timeout": {
           "type": "boolean"
         },
-        "timeout_penalties": {
-          "type": "object",
-          "additionalProperties": true,
-          "properties": {
-            "reason": {
-              "type": "string"
-            },
-            "phase": {
-              "type": "string"
-            },
-            "inactive_slots": {
-              "type": "array",
-              "items": {
-                "type": "integer"
-              }
-            },
-            "neutral_slots": {
-              "type": "array",
-              "items": {
-                "type": "integer"
-              }
-            },
-            "penalty": {
-              "type": "number"
-            }
-          }
-        },
         "duration_seconds": {
           "type": "number"
         }
@@ -276,15 +256,13 @@
     },
     "runnable": {
       "type": "game",
-      "image": "coworld-cue-n-woo:coworld-d4c118256803",
+      "image": "coworld-cue-n-woo:coworld-ab5c2625e4be",
       "run": [
         "python",
         "-m",
         "v2.coworld.game"
       ],
-      "env": {
-        "WORKER_SIGNING_KEY_URI": "secret://coworld/cue_n_woo/tournament_signing_key"
-      }
+      "env": {}
     },
     "protocols": {
       "player": {
@@ -299,7 +277,7 @@
     "docs": {
       "readme": {
         "type": "text",
-        "value": "# Cue-n-Woo\n\nA two-player theory-of-mind game. A hidden-style judge (a steered FLAS/Gemma model) answers questions in a secret persona. Each player privately interviews the judge, then writes challenge questions plus their own answers. Players also answer the opponent's challenge questions. The server scores how well each answer matches the judge's style, and the player who better predicts the judge wins.\n\n## Flow\n\n1. `private_questions`: each player asks the judge up to three private questions.\n2. `proposals`: each player submits three challenge questions, each with their own answer.\n3. `answers`: each player answers the opponent's three challenge questions. An empty answer is a permitted decline and scores 0; non-empty answers need at least three non-space characters.\n4. `reveal`: the hidden concept is revealed and the episode is scored.\n\nThe hidden concept is server-private during play."
+        "value": "# Cue-n-Woo\n\nA two-player theory-of-mind game. A hidden-style Bedrock Claude Sonnet judge answers questions in a secret persona. Each player privately interviews the judge, then writes challenge questions plus their own answers. Players also answer the opponent's challenge questions. The server scores how well each answer matches the judge's style by sampling Claude Sonnet nine times per challenge, and the player who better predicts the judge wins.\n\n## Flow\n\n1. `private_questions`: each player asks the judge up to three private questions.\n2. `proposals`: each player submits three challenge questions, each with their own answer.\n3. `answers`: each player answers the opponent's three challenge questions. An empty answer is a permitted decline and scores 0; non-empty answers need at least three non-space characters.\n4. `reveal`: the hidden concept is revealed and the round is scored.\n\nThe hidden concept is server-private during play."
       },
       "pages": [
         {
@@ -307,7 +285,7 @@
           "title": "rules.md",
           "content": {
             "type": "text",
-            "value": "# Cue-n-Woo Rules\n\nTwo players independently ask a hidden-style judge up to three private questions. Each player then writes three challenge questions plus their own answers. Players also answer the opponent's challenge questions. The server scores answer likelihoods using the local FLAS/Gemma worker. The hidden concept is server-private during play."
+            "value": "# Cue-n-Woo Rules\n\nTwo players independently ask a hidden-style Bedrock Claude Sonnet judge up to three private questions. Each player then writes three challenge questions plus their own answers. Players also answer the opponent's challenge questions. The server scores answer likelihoods by sampling Claude Sonnet nine times for each forced-choice comparison. The hidden concept is server-private during play."
           }
         },
         {
@@ -324,7 +302,7 @@
   "player": [
     {
       "type": "player",
-      "image": "coworld-cue-n-woo:coworld-d4c118256803",
+      "image": "coworld-cue-n-woo:coworld-ab5c2625e4be",
       "run": [
         "python",
         "-m",
@@ -337,7 +315,7 @@
     },
     {
       "type": "player",
-      "image": "coworld-cue-n-woo:coworld-d4c118256803",
+      "image": "coworld-cue-n-woo:coworld-ab5c2625e4be",
       "run": [
         "python",
         "-m",
@@ -350,7 +328,7 @@
     },
     {
       "type": "player",
-      "image": "coworld-cue-n-woo:coworld-d4c118256803",
+      "image": "coworld-cue-n-woo:coworld-ab5c2625e4be",
       "run": [
         "python",
         "-m",
@@ -362,20 +340,11 @@
       "description": "Baseline LLM harness seeded with Kyle's optional per-phase question suggestions; the model may freely ignore them."
     }
   ],
-  "reporter": [
-    {
-      "id": "softmax-default-reporter",
-      "name": "Softmax Default Reporter",
-      "type": "reporter",
-      "description": "Softmax-published default reporter: writes a one-paragraph Markdown summary derived from results.json scores.",
-      "source_url": "https://github.com/Metta-AI/reporters/tree/main/reporters/default",
-      "image": "coworld-default-reporter:latest"
-    }
-  ],
+  "reporter": [],
   "commissioner": [
     {
       "type": "commissioner",
-      "image": "ghcr.io/metta-ai/commissioners-cue-n-woo@sha256:5f7e35f33d23c3c32f94dc0fecbb3ebf112896d55bfba9fc99534081836544a1",
+      "image": "ghcr.io/metta-ai/commissioners-cue-n-woo@sha256:4b61b433d6881de91821986be2b43fb1fad77cf1bef15eac8ff84d556e387fab",
       "env": {},
       "id": "cue-n-woo-commissioner",
       "name": "Cue n Woo Commissioner",
@@ -385,16 +354,7 @@
   ],
   "grader": [],
   "diagnoser": [],
-  "optimizer": [
-    {
-      "id": "coworld-optimizer",
-      "name": "Coworld Optimizer",
-      "type": "optimizer",
-      "description": "Game-agnostic optimizer that consumes the Coworld manifest, replay/results artifacts, reporter outputs, grader scores, and diagnoser outputs to drive local policy improvement.",
-      "source_url": "https://github.com/Metta-AI/optimizers",
-      "image": "coworld-optimizer:latest"
-    }
-  ],
+  "optimizer": [],
   "variants": [
     {
       "id": "default",
@@ -408,20 +368,19 @@
             "name": "Bob"
           }
         ],
-        "llm_worker_url": "https://cue-n-woo-fleet.softmax-research.net",
-        "require_signing": true,
+        "bedrock_model_id": "us.anthropic.claude-sonnet-4-6",
+        "bedrock_region": "us-east-1",
         "round_timeout_seconds": 600,
         "private_questions_per_player": 3,
         "challenge_questions_per_player": 3,
-        "max_question_tokens": 1024,
+        "max_question_tokens": 256,
         "max_answer_tokens": 12,
-        "max_prompt_tokens": 1024,
         "judge_max_tokens": 128,
         "temperature": 0.7,
+        "scoring_temperature": 0.7,
+        "scoring_samples": 9,
         "concept_type": "axis_combo",
         "concept_axis_count": 4,
-        "flas_flowtime": 2,
-        "flas_steps": 3,
         "reveal_concept_to_clients": false
       },
       "description": "Two-player default cue-n-woo game with a ten-minute hard timer."
@@ -437,21 +396,21 @@
           "name": "Bob"
         }
       ],
-      "llm_worker_url": "https://cue-n-woo-fleet.softmax-research.net",
-      "stub_worker": true,
+      "bedrock_model_id": "us.anthropic.claude-sonnet-4-6",
+      "bedrock_region": "us-east-1",
+      "stub_bedrock": true,
       "round_timeout_seconds": 600,
       "private_questions_per_player": 3,
       "challenge_questions_per_player": 3,
-      "max_question_tokens": 1024,
+      "max_question_tokens": 256,
       "max_answer_tokens": 12,
-      "max_prompt_tokens": 1024,
       "judge_max_tokens": 128,
       "temperature": 0,
+      "scoring_temperature": 0,
+      "scoring_samples": 9,
       "concept_type": "axis_combo",
       "concept_seed": "certification",
       "concept_axis_count": 4,
-      "flas_flowtime": 2,
-      "flas_steps": 3,
       "reveal_concept_to_clients": false
     },
     "players": [

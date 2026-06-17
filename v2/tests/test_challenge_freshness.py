@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import json
 
-from v2.coworld.game import scoring_context
+from v2.coworld.game import player_view_for_phase
 from v2.coworld.players import baseline
 
 
-def _state_with_prior_turns(phase: str = "proposals") -> dict:
+def _state_with_private_turns() -> dict:
     return {
         "type": "state",
-        "phase": phase,
+        "phase": "proposals",
         "remaining_seconds": 120,
         "limits": {
             "max_answer_tokens": 12,
-            "max_question_tokens": 1024,
+            "max_question_tokens": 256,
             "judge_max_tokens": 128,
         },
         "slot": 0,
@@ -27,8 +27,8 @@ def _state_with_prior_turns(phase: str = "proposals") -> dict:
             "proposals": [],
             "answers": [],
         },
-        "opponent_questions": [{"question": "OPPONENT CURRENT QUESTION?"}],
-        "public_questions": [[{"question": "PRIOR PUBLIC QUESTION?"}], []],
+        "opponent_questions": [],
+        "public_questions": [[], []],
         "counts": [
             {"chats": 3, "proposals": 0, "answers": 0},
             {"chats": 3, "proposals": 0, "answers": 0},
@@ -36,11 +36,19 @@ def _state_with_prior_turns(phase: str = "proposals") -> dict:
     }
 
 
-def test_baseline_proposal_prompt_includes_player_visible_transcript(monkeypatch) -> None:
+def test_server_proposal_view_redacts_private_transcript() -> None:
+    player = _state_with_private_turns()["me"]
+
+    proposal_view = player_view_for_phase(player, "proposals")
+    answer_view = player_view_for_phase(player, "answers")
+
+    assert proposal_view["judge"] == []
+    assert answer_view["judge"] == player["judge"]
+
+
+def test_baseline_proposal_prompt_redacts_private_transcript(monkeypatch) -> None:
     captured: dict[str, str] = {}
-    policy = baseline.ClaudePolicy.__new__(baseline.ClaudePolicy)
-    policy.advice = {}
-    policy.history = []
+    policy = baseline.ClaudePolicy()
 
     def fake_converse(messages):
         captured["prompt"] = messages[0]["content"][0]["text"]
@@ -70,60 +78,11 @@ def test_baseline_proposal_prompt_includes_player_visible_transcript(monkeypatch
 
     monkeypatch.setattr(policy, "_converse_with_retry", fake_converse)
 
-    action = policy.decide(_state_with_prior_turns())
+    action = policy.decide(_state_with_private_turns())
 
     assert action["type"] == "propose"
-    assert "PRIVATE PROMPT" in captured["prompt"]
-    assert "PRIVATE ANSWER" in captured["prompt"]
-    assert "PRIOR PUBLIC QUESTION" in captured["prompt"]
-    assert "Private transcript so far" in captured["prompt"]
+    assert "PRIVATE PROMPT" not in captured["prompt"]
+    assert "PRIVATE ANSWER" not in captured["prompt"]
     prompt_json = captured["prompt"].split("Current observation JSON:\n", 1)[1].split("\n\nPrevious validation error:", 1)[0]
-    prompt_state = json.loads(prompt_json)
-    assert prompt_state["me"] == _state_with_prior_turns()["me"]
-    assert prompt_state["public_questions"] == _state_with_prior_turns()["public_questions"]
-
-
-def test_baseline_answer_prompt_includes_transcript_and_opponent_questions(monkeypatch) -> None:
-    captured: dict[str, str] = {}
-    policy = baseline.ClaudePolicy.__new__(baseline.ClaudePolicy)
-    policy.advice = {}
-    policy.history = []
-
-    def fake_converse(messages):
-        captured["prompt"] = messages[0]["content"][0]["text"]
-        return {
-            "output": {
-                "message": {
-                    "content": [
-                        {
-                            "toolUse": {
-                                "name": "submit_action",
-                                "input": {
-                                    "action": {
-                                        "type": "answer",
-                                        "answers": ["Alpha", "Bravo", "Charlie"],
-                                    }
-                                },
-                            }
-                        }
-                    ]
-                }
-            }
-        }
-
-    monkeypatch.setattr(policy, "_converse_with_retry", fake_converse)
-
-    action = policy.decide(_state_with_prior_turns("answers"))
-
-    assert action["type"] == "answer"
-    assert "PRIVATE PROMPT" in captured["prompt"]
-    assert "PRIVATE ANSWER" in captured["prompt"]
-    assert "OPPONENT CURRENT QUESTION" in captured["prompt"]
-
-
-def test_scoring_context_does_not_build_transcript() -> None:
-    context = scoring_context()
-
-    assert "PRIVATE PROMPT" not in context
-    assert "Question group" not in context
-    assert context == "You will be presented with a question/challenge and two possible answers. Please select one of the two answers."
+    assert json.loads(prompt_json)["me"]["judge"] == []
+    assert "fresh challenge-writing turn" in captured["prompt"]

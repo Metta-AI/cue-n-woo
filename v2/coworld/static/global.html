@@ -61,7 +61,7 @@ a.raw{color:var(--dim);font-size:15px;text-decoration:none}
     </div>
     <div>
       <div class="status"><span class="pip" id="pip"></span><span id="status">connecting</span></div>
-      <div style="text-align:right;margin-top:8px"><a class="raw" href="/client/global/raw">raw json</a></div>
+      <div style="text-align:right;margin-top:8px"><a class="raw" href="global/raw">raw json</a></div>
     </div>
   </div>
   <div id="app"></div>
@@ -136,7 +136,19 @@ a.raw{color:var(--dim);font-size:15px;text-decoration:none}
       resultRows(results)+'</section></div>'+
       '<section class="panel" style="margin-top:18px"><h2>Challenge questions</h2><div class="questions">'+questions(state)+'</div></section>';
   }
-  var ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/global');
+  function websocketUrl(path){
+    var address=new URLSearchParams(location.search).get('address');
+    var target=new URL(address||location.href,location.href);
+    if(target.protocol==='http:') target.protocol='ws:';
+    else if(target.protocol==='https:') target.protocol='wss:';
+    target.hash='';
+    if(!address){
+      target.pathname=target.pathname.replace(/\/client\/global\/?$/,path);
+      target.search='';
+    }
+    return target.toString();
+  }
+  var ws=new WebSocket(websocketUrl('/global'));
   ws.onmessage=function(e){render(JSON.parse(e.data));};
   ws.onerror=function(){app.innerHTML='<div class="err">Could not connect to the global stream.</div>';status.textContent='disconnected';};
 })();

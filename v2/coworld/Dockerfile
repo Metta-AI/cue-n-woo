@@ -1,8 +1,8 @@
 FROM docker.io/library/python:3.12-slim
 
-# Runtime deps for the game referee and the bundled player policies. The FLAS/
-# Gemma worker is NOT in this image — it runs remotely and is reached over HTTPS,
-# so torch/flas are intentionally absent and the image stays small.
+# Runtime deps for the game referee and the bundled player policies. Bedrock
+# serves the judge/scorer remotely, so torch/flas are intentionally absent and
+# the image stays small.
 RUN pip install --no-cache-dir \
     fastapi==0.115.5 \
     "uvicorn[standard]==0.34.2" \
