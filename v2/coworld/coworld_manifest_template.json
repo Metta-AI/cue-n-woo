@@ -137,7 +137,7 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 99,
-          "default": 9
+          "default": 5
         },
         "bedrock_connect_timeout_seconds": {
           "type": "number",
@@ -282,7 +282,7 @@
     "docs": {
       "readme": {
         "type": "text",
-        "value": "# Cue-n-Woo\n\nA two-player theory-of-mind game. A hidden-style Bedrock Claude Sonnet judge answers questions in a secret persona. Each player privately interviews the judge, then writes challenge questions plus their own answers. Players also answer the opponent's challenge questions. The server scores how well each answer matches the judge's style by sampling Claude Sonnet nine times per challenge, and the player who better predicts the judge wins.\n\n## Flow\n\n1. `private_questions`: each player asks the judge up to three private questions.\n2. `proposals`: each player submits three challenge questions, each with their own answer.\n3. `answers`: each player answers the opponent's three challenge questions. An empty answer is a permitted decline and scores 0; non-empty answers need at least three non-space characters.\n4. `reveal`: the hidden concept is revealed and the round is scored.\n\nThe hidden concept is server-private during play."
+        "value": "# Cue-n-Woo\n\nA two-player theory-of-mind game. A hidden-style Bedrock Claude Sonnet judge answers questions in a secret persona. Each player privately interviews the judge, then writes challenge questions plus their own answers. Players also answer the opponent's challenge questions. The server scores how well each answer matches the judge's style by sampling Claude Sonnet five times per challenge, and the player who better predicts the judge wins.\n\n## Flow\n\n1. `private_questions`: each player asks the judge up to three private questions.\n2. `proposals`: each player submits three challenge questions, each with their own answer.\n3. `answers`: each player answers the opponent's three challenge questions. An empty answer is a permitted decline and scores 0; non-empty answers need at least three non-space characters.\n4. `reveal`: the hidden concept is revealed and the round is scored.\n\nThe hidden concept is server-private during play."
       },
       "pages": [
         {
@@ -290,7 +290,7 @@
           "title": "rules.md",
           "content": {
             "type": "text",
-            "value": "# Cue-n-Woo Rules\n\nTwo players independently ask a hidden-style Bedrock Claude Sonnet judge up to three private questions. Each player then writes three challenge questions plus their own answers. Players also answer the opponent's challenge questions. The server scores answer likelihoods by sampling Claude Sonnet nine times for each forced-choice comparison. The hidden concept is server-private during play."
+            "value": "# Cue-n-Woo Rules\n\nTwo players independently ask a hidden-style Bedrock Claude Sonnet judge up to three private questions. Each player then writes three challenge questions plus their own answers. Players also answer the opponent's challenge questions. The server scores answer likelihoods by sampling Claude Sonnet five times for each forced-choice comparison. The hidden concept is server-private during play."
           }
         },
         {
@@ -380,7 +380,7 @@
         "judge_max_tokens": 128,
         "temperature": 0.7,
         "scoring_temperature": 0.7,
-        "scoring_samples": 9,
+        "scoring_samples": 5,
         "concept_type": "axis_combo",
         "concept_axis_count": 4,
         "reveal_concept_to_clients": false
@@ -408,7 +408,7 @@
       "judge_max_tokens": 128,
       "temperature": 0,
       "scoring_temperature": 0,
-      "scoring_samples": 9,
+      "scoring_samples": 5,
       "concept_type": "axis_combo",
       "concept_seed": "certification",
       "concept_axis_count": 4,

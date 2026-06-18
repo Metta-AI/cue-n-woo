@@ -39,6 +39,9 @@ BEDROCK_ATTEMPTS = 5
 DEFAULT_BEDROCK_CONNECT_TIMEOUT_SECONDS = 5.0
 DEFAULT_BEDROCK_READ_TIMEOUT_SECONDS = 120.0
 DEFAULT_BEDROCK_MAX_BACKOFF_SECONDS = 15.0
+# Per-socket cap for a single broadcast send. Keeps one wedged (open-but-not-
+# reading) client from stalling timer_loop and the round deadline.
+WEBSOCKET_SEND_TIMEOUT_SECONDS = 5.0
 TRANSIENT_BEDROCK_ERROR_CODES = {
     "InternalServerException",
     "ModelErrorException",
@@ -960,7 +963,7 @@ async def option_selection_sample_probs(
     opponent_answer: str,
     concept: dict[str, Any],
 ) -> dict[str, Any]:
-    sample_count = int(CONFIG.get("scoring_samples", 9))
+    sample_count = int(CONFIG.get("scoring_samples", 5))
     if sample_count < 1:
         raise ValueError("scoring_samples must be positive.")
 
@@ -1020,16 +1023,26 @@ def public_config(config: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in config.items() if key not in hidden_keys}
 
 
+async def send_json_bounded(websocket: WebSocket, payload: dict[str, Any]) -> None:
+    # A player/global socket can stay open but stop reading (TCP backpressure),
+    # in which case send_json blocks forever. An unbounded await here would
+    # freeze timer_loop and prevent the round deadline from ever firing, so the
+    # episode would run until the external Kubernetes job deadline (~1200s)
+    # instead of the configured round_timeout_seconds. Bound every send so one
+    # wedged socket cannot stall the deadline; a slow/dead socket is simply
+    # skipped for this broadcast.
+    with suppress(Exception):
+        await asyncio.wait_for(websocket.send_json(payload), timeout=WEBSOCKET_SEND_TIMEOUT_SECONDS)
+
+
 async def broadcast() -> None:
     async with state.lock:
         targets = [(slot, ws) for slot, ws in state.connections.items()]
         globals_ = list(state.global_connections)
     for slot, ws in targets:
-        with suppress(Exception):
-            await ws.send_json(state.view(slot))
+        await send_json_bounded(ws, state.view(slot))
     for ws in globals_:
-        with suppress(Exception):
-            await ws.send_json(state.view(global_view=True))
+        await send_json_bounded(ws, state.view(global_view=True))
 
 
 async def timer_loop() -> None:
