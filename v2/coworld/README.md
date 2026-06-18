@@ -33,7 +33,7 @@ Scoring notes:
   answer as `canonical_answer` and skips the Sonnet choice samples. In the current two-player game, both matching answers
   receive 40 points: 50 shared-probability base points minus a 10 point duplicate-answer penalty.
 - Otherwise, each distinct answer on a challenge is scored from `scoring_samples` forced-choice Bedrock Claude Sonnet
-  calls, defaulting to 9 samples: `100 * sampled_probability_of_that_answer`,
+  calls, defaulting to 5 samples: `100 * sampled_probability_of_that_answer`,
   plus a 10 point bonus for each distinct competing answer it beats. In the current two-player game that is either 0 or
   10 bonus points per answer. The player score is the sum of the points earned by that player's answers, regardless of
   who submitted the question.

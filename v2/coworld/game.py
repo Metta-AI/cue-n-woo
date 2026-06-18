@@ -963,7 +963,7 @@ async def option_selection_sample_probs(
     opponent_answer: str,
     concept: dict[str, Any],
 ) -> dict[str, Any]:
-    sample_count = int(CONFIG.get("scoring_samples", 9))
+    sample_count = int(CONFIG.get("scoring_samples", 5))
     if sample_count < 1:
         raise ValueError("scoring_samples must be positive.")
 
