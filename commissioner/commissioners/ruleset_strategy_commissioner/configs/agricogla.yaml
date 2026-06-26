@@ -1,0 +1,67 @@
+# agricogla: 4-seat worker-placement game. Same as `default` except:
+#   - competition rounds run 50 episodes (not 1) so every champion is seated several times
+#     across the 4 seats each round.
+#   - mmr_neighbors seating: each round orders champions by current OpenSkill skill (mu, replayed
+#     from recent results) and seats rolling windows of 4 over that order, so every episode is a
+#     cohort of skill-neighbours -- close, informative matches whose outcome actually moves ratings,
+#     instead of uniformly random cohorts. Overlapping windows keep the field connected so the MMR
+#     ranker can still order across it, and a wall-clock jitter varies cohorts round to round (it
+#     degrades to random seating at a cold start when no champion is rated yet).
+#   - rounds are scored by per-episode win rate (round_score: win): 1 for the episode
+#     winner, 0 for everyone else (a tie for first shares the win), so the league
+#     rewards winning games outright, not placement or margin.
+#   - the division is ranked by per-policy OpenSkill MMR (mu - 3*sigma): each round is one
+#     free-for-all match ranked by win-rate finishing position, so standings reflect who you beat.
+scoring:
+  round_score: win
+  leaderboard:
+    type: mmr
+
+defaults:
+  seating: mmr_neighbors
+  fill_seats: duplicate
+  min_entries_to_start: 2
+  stage:
+    label: Round
+    episodes: 50
+    min_episodes_per_entrant: 1
+
+divisions:
+  qualifiers:
+    name: Qualifiers
+    level: -99
+    match:
+      name: Qualifiers
+      type: staging
+    entrants: qualifying
+    min_entries_to_start: 1
+    stages:
+      - id: crash_check
+        schedule:
+          label: Qualifier
+          self_play: true
+          attempts: 2
+          min_episodes_per_entrant: 2
+        on_episode_complete:
+          - id: qualified
+            criteria:
+              completed_episodes_gt: 0
+            actions:
+              - type: update_membership
+                division: competition
+                status: competing
+                substatus: champion
+          - id: disqualified
+            criteria: otherwise
+            actions:
+              - type: update_membership
+                status: disqualified
+                substatus: inactive
+
+  competition:
+    name: Competition
+    previous_name: Daily
+    level: 1
+    match:
+      type: competition
+    entrants: champions

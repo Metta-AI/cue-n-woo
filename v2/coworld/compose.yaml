@@ -6,3 +6,12 @@ services:
       # Context is the v2/ dir so the Dockerfile can COPY signing.py + coworld/.
       context: ..
       dockerfile: coworld/Dockerfile
+  commissioner:
+    image: cue-n-woo-commissioner:latest
+    platform: linux/amd64
+    build:
+      context: ../../commissioner
+      dockerfile: commissioners/Dockerfile
+      args:
+        COMMISSIONER_KEY: config_driven
+        RULESET_STRATEGY_CONFIG_NAME: cue_n_woo
